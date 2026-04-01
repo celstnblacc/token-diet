@@ -38,6 +38,14 @@ check_command() { command -v "$1" &>/dev/null; }
 ensure_git() {
   check_command git || fail "git is required. Install it first."
   ok "git found: $(git --version)"
+
+  # Initialize submodules so forks/ is populated for --local builds
+  if [ -f "$PROJECT_ROOT/.gitmodules" ]; then
+    info "Initializing submodules (forks/rtk, forks/tilth, forks/serena)..."
+    git -C "$PROJECT_ROOT" submodule update --init --recursive 2>&1 \
+      | grep -E "Cloning|already|error" || true
+    ok "Submodules ready"
+  fi
 }
 
 ensure_curl() {

@@ -50,6 +50,15 @@ function Test-Cmd { param([string]$Name) $null -ne (Get-Command $Name -ErrorActi
 function Ensure-Git {
     if (-not (Test-Cmd "git")) { Write-Fail "git is required. Install from https://git-scm.com" }
     Write-Ok "git found: $(git --version)"
+
+    # Initialize submodules so forks\ is populated for local builds
+    $gitmodules = Join-Path (Split-Path -Parent $PSScriptRoot) ".gitmodules"
+    if (Test-Path $gitmodules) {
+        Write-Info "Initializing submodules (forks\rtk, forks\tilth, forks\serena)..."
+        $root = Split-Path -Parent $PSScriptRoot
+        git -C $root submodule update --init --recursive 2>&1 | Where-Object { $_ -match "Cloning|already|error" }
+        Write-Ok "Submodules ready"
+    }
 }
 
 function Ensure-Rust {
