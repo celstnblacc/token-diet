@@ -444,16 +444,66 @@ Options:
 EOF
 }
 
-main() {
-  local do_rtk=false do_tilth=false do_serena=false
-  local do_dedup=true verify_only=false
-  LOCAL_MODE=false
+# --- Interactive wizard -------------------------------------------------------
+run_wizard() {
+  echo ""
+  echo -e "${BOLD}  token-diet interactive installer${NC}"
+  echo -e "${BLUE}  RTK + tilth + Serena — security-patched forks${NC}"
+  echo ""
+  echo "  Tools:"
+  echo "    RTK    — CLI output compression (60-90% token savings)"
+  echo "    tilth  — smart code reading via tree-sitter AST"
+  echo "    Serena — IDE-like symbol navigation via LSP"
+  echo ""
 
-  if [ $# -eq 0 ]; then
-    do_rtk=true; do_tilth=true; do_serena=true
+  local answer
+  read -rp "  Install all three tools? [Y/n] " answer
+  if [[ "$answer" =~ ^[Nn] ]]; then
+    local r t s
+    read -rp "    Install RTK?    [Y/n] " r
+    read -rp "    Install tilth?  [Y/n] " t
+    read -rp "    Install Serena? [Y/n] " s
+    [[ ! "$r" =~ ^[Nn] ]] && WIZ_RTK=true    || WIZ_RTK=false
+    [[ ! "$t" =~ ^[Nn] ]] && WIZ_TILTH=true  || WIZ_TILTH=false
+    [[ ! "$s" =~ ^[Nn] ]] && WIZ_SERENA=true || WIZ_SERENA=false
+  else
+    WIZ_RTK=true; WIZ_TILTH=true; WIZ_SERENA=true
   fi
 
+  WIZ_DEDUP=false
+  if $WIZ_TILTH && $WIZ_SERENA; then
+    local d
+    read -rp "  Configure Serena/tilth overlap fix? [Y/n] " d
+    [[ ! "$d" =~ ^[Nn] ]] && WIZ_DEDUP=true
+  fi
+
+  WIZ_LOCAL=false
+  local l
+  read -rp "  Air-gapped / local build? [y/N] " l
+  [[ "$l" =~ ^[Yy] ]] && WIZ_LOCAL=true
+
+  echo ""
+  echo -e "${BOLD}  Ready to install:${NC}"
+  $WIZ_RTK    && echo -e "  ${GREEN}+ RTK${NC}"
+  $WIZ_TILTH  && echo -e "  ${GREEN}+ tilth${NC}"
+  $WIZ_SERENA && echo -e "  ${GREEN}+ Serena${NC}"
+  $WIZ_DEDUP  && echo -e "  ${GREEN}+ Overlap fix${NC}"
+  $WIZ_LOCAL  && echo -e "  ${YELLOW}  Mode: LOCAL (air-gapped)${NC}"
+  echo ""
+
+  local confirm
+  read -rp "  Proceed? [Y/n] " confirm
+  [[ "$confirm" =~ ^[Nn] ]] && echo "Aborted." && exit 0
+}
+
+# --- Main ---------------------------------------------------------------------
+main() {
+  local do_rtk=false do_tilth=false do_serena=false
+  local do_dedup=true verify_only=false has_args=false
+  LOCAL_MODE=false
+
   while [ $# -gt 0 ]; do
+    has_args=true
     case "$1" in
       --all)          do_rtk=true; do_tilth=true; do_serena=true ;;
       --local)        LOCAL_MODE=true ;;
@@ -470,7 +520,6 @@ main() {
 
   echo -e "\n${BOLD}=== token-diet ===${NC}"
   echo -e "${BOLD}    RTK + tilth + Serena${NC}"
-  if $LOCAL_MODE; then echo -e "${BOLD}    Mode: LOCAL (air-gapped)${NC}"; fi
   echo ""
 
   if $verify_only; then
@@ -478,6 +527,15 @@ main() {
     verify_stack
     exit 0
   fi
+
+  # Interactive mode when no args given
+  if ! $has_args; then
+    run_wizard
+    do_rtk=$WIZ_RTK; do_tilth=$WIZ_TILTH; do_serena=$WIZ_SERENA
+    do_dedup=$WIZ_DEDUP; LOCAL_MODE=$WIZ_LOCAL
+  fi
+
+  if $LOCAL_MODE; then echo -e "${BOLD}    Mode: LOCAL (air-gapped)${NC}\n"; fi
 
   # Prerequisites
   header "Prerequisites"
