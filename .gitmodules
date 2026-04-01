@@ -3,7 +3,7 @@
 [submodule "forks/rtk"]
 	path = forks/rtk
 	url = https://github.com/celstnblacc/rtk.git
-	branch = main
+	branch = master
 
 [submodule "forks/tilth"]
 	path = forks/tilth
