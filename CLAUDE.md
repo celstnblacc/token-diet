@@ -44,7 +44,7 @@ docker build -f docker/Dockerfile.serena -t serena:local .
 # Install from upstream (internet required)
 bash scripts/install.sh
 
-# Install from local dist/ (air-gapped)
+# Install from local forks/ submodules (air-gapped, builds from source)
 bash scripts/install.sh --local
 
 # Verify installation

@@ -88,31 +88,25 @@ Edit `.gitmodules` to point to your internal server, then:
 git submodule update --init --recursive
 ```
 
-### 3. Build locally
+### 3. Verify the forks build and pass tests
 
 ```bash
-# Build RTK + tilth binaries and Serena Docker image
+# Build + test + audit all forks (CI verification)
 bash scripts/build.sh --release
-
-# Artifacts land in dist/
-ls dist/
-# rtk  tilth  serena-image.tar.gz
 ```
 
-### 4. Install from local build
+### 4. Install from local forks
 
 ```bash
-# Install from dist/ — no crates.io, no PyPI, no GitHub
+# Build and install directly from forks/ — no crates.io, no PyPI, no GitHub
 bash scripts/install.sh --local
 ```
 
 ### 5. Distribute to team
 
-```bash
-# Copy binaries to shared location or internal package manager
-cp dist/rtk dist/tilth /path/to/artifact-store/
-docker load < dist/serena-image.tar.gz
-```
+Each team member clones token-diet, runs `git submodule update --init --recursive`,
+then `bash scripts/install.sh --local`. Rust toolchain is auto-installed by the
+script if missing.
 
 ## Project Structure
 
@@ -138,7 +132,7 @@ token-diet/
 │   └── security-audit.md     # Per-tool security checklist
 ├── docs/
 │   └── comparison.md         # RTK vs tilth vs Serena analysis
-├── dist/                     # Build artifacts (gitignored)
+├── scripts/build.sh          # Build + test + audit all forks (CI verification)
 ├── .gitmodules               # Submodule config
 └── .gitignore
 ```

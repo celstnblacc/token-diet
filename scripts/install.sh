@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # token-diet installer — RTK + tilth + Serena on macOS/Linux
 # Supports: Claude Code, Codex CLI, OpenCode, Copilot CLI, VS Code
-# Modes: --online (default, from upstream) or --local (from forks/ + dist/)
+# Modes: --online (default, installs from fork repos) or --local (builds from forks/ submodules, no internet)
 #
 # Usage:
 #   bash install.sh                   # install all from upstream
@@ -115,16 +115,9 @@ install_rtk() {
   fi
 
   if $LOCAL_MODE; then
-    local binary="$PROJECT_ROOT/dist/rtk"
-    if [ -f "$binary" ]; then
-      cp "$binary" "$HOME/.local/bin/rtk"
-      chmod +x "$HOME/.local/bin/rtk"
-      ok "RTK installed from local build"
-    else
-      info "No pre-built binary. Building from fork..."
-      cargo install --path "$PROJECT_ROOT/forks/rtk" --force 2>&1 | tail -5
-      ok "RTK built and installed from fork"
-    fi
+    info "Building RTK from fork (no internet)..."
+    cargo install --path "$PROJECT_ROOT/forks/rtk" --force 2>&1 | tail -5
+    ok "RTK built and installed from fork"
   else
     cargo install --git "$RTK_REPO" --force 2>&1 | tail -5
     ok "RTK installed: $(rtk --version 2>/dev/null)"
@@ -178,16 +171,9 @@ install_tilth() {
   fi
 
   if $LOCAL_MODE; then
-    local binary="$PROJECT_ROOT/dist/tilth"
-    if [ -f "$binary" ]; then
-      cp "$binary" "$HOME/.local/bin/tilth"
-      chmod +x "$HOME/.local/bin/tilth"
-      ok "tilth installed from local build"
-    else
-      info "No pre-built binary. Building from fork..."
-      cargo install --path "$PROJECT_ROOT/forks/tilth" --force 2>&1 | tail -5
-      ok "tilth built and installed from fork"
-    fi
+    info "Building tilth from fork (no internet)..."
+    cargo install --path "$PROJECT_ROOT/forks/tilth" --force 2>&1 | tail -5
+    ok "tilth built and installed from fork"
   else
     cargo install --git "$TILTH_REPO" --force 2>&1 | tail -5
     ok "tilth installed: $(tilth --version 2>/dev/null)"
@@ -217,15 +203,10 @@ install_serena() {
   header "Serena (IDE-like symbol navigation)"
 
   if $LOCAL_MODE; then
-    # Docker-based install from local image
     if docker image inspect token-diet/serena:latest &>/dev/null; then
-      ok "Serena Docker image already loaded"
-    elif [ -f "$PROJECT_ROOT/dist/serena-image.tar.gz" ]; then
-      info "Loading Serena Docker image from tarball..."
-      docker load < "$PROJECT_ROOT/dist/serena-image.tar.gz"
-      ok "Serena Docker image loaded"
+      ok "Serena Docker image already built"
     else
-      info "Building Serena Docker image from fork..."
+      info "Building Serena Docker image from fork (no internet)..."
       ensure_docker
       docker build -f "$PROJECT_ROOT/docker/Dockerfile.serena" -t token-diet/serena:latest "$PROJECT_ROOT" 2>&1 | tail -10
       ok "Serena Docker image built"
