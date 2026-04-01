@@ -1,0 +1,24 @@
+# ShipGuard configuration
+# See: https://github.com/DevOpsCelstn/shipguard
+# Reviewed 2026-04-01 before public release
+
+severity_threshold: medium
+
+exclude_paths:
+  - "vendor/**"
+  - "node_modules/**"
+  - "**/fixtures/**"
+  - "**/__snapshots__/**"
+  # Pre-existing upstream issues in submodule forks — tracked per-fork repo
+  - "forks/**"
+
+# Accepted risks in token-diet own files (reviewed 2026-04-01)
+disable_rules:
+  # SHELL-002: curl|sh bootstrap for rustup + uv in install.sh/build.sh
+  # Both rustup.rs and astral.sh/uv only publish this install method.
+  # These are the official, documented installation patterns for both tools.
+  - SHELL-002
+  # SC-004: submodule URLs point to intentional public fork repos (celstnblacc/*)
+  - SC-004
+  # SC-005: Docker image signing advisory — dev-tool installer, not a prod pipeline
+  - SC-005
