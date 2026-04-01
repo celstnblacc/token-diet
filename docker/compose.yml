@@ -1,0 +1,34 @@
+# token-diet Docker Compose
+# Usage: docker compose -f docker/compose.yml up serena
+#
+# Serena runs as MCP server, mounts your project read-only.
+# RTK and tilth are native binaries — no Docker needed.
+
+services:
+  serena:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.serena
+    image: token-diet/serena:latest
+    container_name: serena-mcp
+    volumes:
+      - "${PROJECT_DIR:-.}:/workspace:ro"
+    environment:
+      - SERENA_NO_TELEMETRY=1
+    # MCP communicates via stdio
+    stdin_open: true
+    tty: true
+    # No network needed at runtime
+    network_mode: none
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "2.0"
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M

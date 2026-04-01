@@ -1,0 +1,346 @@
+---
+# token-diet Ansible playbook — RTK + tilth + Serena
+# Configures for Claude Code, Codex CLI, and OpenCode.
+#
+# Usage:
+#   ansible-playbook playbook.yml                        # install all
+#   ansible-playbook playbook.yml -e "tools=rtk,tilth"   # specific tools
+#   ansible-playbook playbook.yml --tags verify           # verify only
+
+- name: token-diet — AI Token Optimization Stack
+  hosts: localhost
+  connection: local
+  gather_facts: true
+
+  vars:
+    tools: "rtk,tilth,serena"
+    rtk_repo: "https://github.com/rtk-ai/rtk"
+    tilth_crate: "tilth"
+    serena_repo: "https://github.com/oraios/serena"
+    cargo_bin: "{{ ansible_env.HOME }}/.cargo/bin"
+    local_bin: "{{ ansible_env.HOME }}/.local/bin"
+    skip_dedup: false
+
+  tasks:
+    # =========================================================================
+    # Setup
+    # =========================================================================
+    - name: Parse tool selection
+      ansible.builtin.set_fact:
+        install_rtk: "{{ 'rtk' in tools.split(',') or tools == 'all' }}"
+        install_tilth: "{{ 'tilth' in tools.split(',') or tools == 'all' }}"
+        install_serena: "{{ 'serena' in tools.split(',') or tools == 'all' }}"
+        is_macos: "{{ ansible_os_family == 'Darwin' }}"
+        is_linux: "{{ ansible_system == 'Linux' }}"
+        is_windows: "{{ ansible_os_family == 'Windows' }}"
+      tags: [always]
+
+    # =========================================================================
+    # Prerequisites
+    # =========================================================================
+    - name: Check git
+      ansible.builtin.command: git --version
+      register: git_check
+      changed_when: false
+      tags: [prereq]
+
+    # --- Rust -----------------------------------------------------------------
+    - name: Check rustup
+      ansible.builtin.command: rustup --version
+      register: rustup_check
+      changed_when: false
+      failed_when: false
+      when: install_rtk or install_tilth
+      tags: [prereq]
+
+    - name: Install Rust (Unix)
+      ansible.builtin.shell: >
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+      args:
+        creates: "{{ cargo_bin }}/rustc"
+      when:
+        - (install_rtk or install_tilth)
+        - rustup_check.rc != 0
+        - not is_windows
+      tags: [prereq]
+
+    - name: Install Rust (Windows)
+      ansible.windows.win_command: >
+        winget install --id Rustlang.Rustup --accept-package-agreements --accept-source-agreements
+      when:
+        - (install_rtk or install_tilth)
+        - rustup_check.rc != 0
+        - is_windows
+      tags: [prereq]
+
+    - name: Update Rust stable
+      ansible.builtin.command: rustup update stable --no-self-update
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      changed_when: false
+      failed_when: false
+      when: install_rtk or install_tilth
+      tags: [prereq]
+
+    # --- uv -------------------------------------------------------------------
+    - name: Check uv
+      ansible.builtin.command: uv --version
+      register: uv_check
+      changed_when: false
+      failed_when: false
+      when: install_serena
+      tags: [prereq]
+
+    - name: Install uv (Unix)
+      ansible.builtin.shell: curl -LsSf https://astral.sh/uv/install.sh | sh
+      when:
+        - install_serena
+        - uv_check.rc != 0
+        - not is_windows
+      tags: [prereq]
+
+    - name: Install uv (Windows)
+      ansible.windows.win_shell: irm https://astral.sh/uv/install.ps1 | iex
+      when:
+        - install_serena
+        - uv_check.rc != 0
+        - is_windows
+      tags: [prereq]
+
+    # --- AI hosts -------------------------------------------------------------
+    - name: Detect AI hosts
+      ansible.builtin.command: "{{ item.cmd }}"
+      loop:
+        - { name: claude,   cmd: "claude --version" }
+        - { name: codex,    cmd: "codex --version" }
+        - { name: opencode, cmd: "opencode --version" }
+      register: host_checks
+      failed_when: false
+      changed_when: false
+      tags: [prereq]
+
+    - name: Set host facts
+      ansible.builtin.set_fact:
+        has_claude: "{{ host_checks.results[0].rc == 0 }}"
+        has_codex: "{{ host_checks.results[1].rc == 0 }}"
+        has_opencode: "{{ host_checks.results[2].rc == 0 }}"
+      tags: [always]
+
+    # =========================================================================
+    # RTK
+    # =========================================================================
+    - name: Install RTK
+      ansible.builtin.command: cargo install --git {{ rtk_repo }} --force
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      when: install_rtk
+      register: rtk_install
+      changed_when: "'Installed' in rtk_install.stderr or 'Compiling' in rtk_install.stderr"
+      tags: [rtk]
+
+    - name: RTK — init for Claude Code + Codex + OpenCode
+      ansible.builtin.command: rtk init -g --opencode
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      when:
+        - install_rtk
+        - has_claude | bool
+        - has_opencode | bool
+      failed_when: false
+      changed_when: false
+      tags: [rtk]
+
+    - name: RTK — init for Claude Code + Codex (no OpenCode)
+      ansible.builtin.command: rtk init -g
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      when:
+        - install_rtk
+        - has_claude | bool
+        - not (has_opencode | bool)
+      failed_when: false
+      changed_when: false
+      tags: [rtk]
+
+    - name: RTK — init for Codex only
+      ansible.builtin.command: rtk init --codex
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      when:
+        - install_rtk
+        - has_codex | bool
+        - not (has_claude | bool)
+      failed_when: false
+      changed_when: false
+      tags: [rtk]
+
+    - name: RTK — init for OpenCode only
+      ansible.builtin.command: rtk init -g --opencode
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      when:
+        - install_rtk
+        - has_opencode | bool
+        - not (has_claude | bool)
+      failed_when: false
+      changed_when: false
+      tags: [rtk]
+
+    # =========================================================================
+    # tilth
+    # =========================================================================
+    - name: Install tilth
+      ansible.builtin.command: cargo install {{ tilth_crate }} --force
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      when: install_tilth
+      register: tilth_install
+      changed_when: "'Installed' in tilth_install.stderr or 'Compiling' in tilth_install.stderr"
+      tags: [tilth]
+
+    - name: tilth — register MCP for each host
+      ansible.builtin.command: "tilth install {{ item.host }}"
+      environment:
+        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+      loop:
+        - { host: "claude-code", when: "{{ has_claude }}" }
+        - { host: "codex",       when: "{{ has_codex }}" }
+        - { host: "opencode",    when: "{{ has_opencode }}" }
+      when:
+        - install_tilth
+        - item.when | bool
+      failed_when: false
+      changed_when: false
+      tags: [tilth]
+
+    # =========================================================================
+    # Serena
+    # =========================================================================
+    - name: Verify Serena via uvx
+      ansible.builtin.command: >
+        uvx --from git+{{ serena_repo }} serena --help
+      environment:
+        PATH: "{{ local_bin }}:{{ ansible_env.PATH }}"
+      when: install_serena
+      failed_when: false
+      changed_when: false
+      tags: [serena]
+
+    - name: Serena — register MCP for Claude Code
+      ansible.builtin.command: >
+        claude mcp add --scope user serena --
+        uvx --from git+{{ serena_repo }} serena start-mcp-server
+        --context=claude-code --project-from-cwd
+      when:
+        - install_serena
+        - has_claude | bool
+      failed_when: false
+      changed_when: false
+      tags: [serena]
+
+    - name: Serena — configure for Codex CLI
+      ansible.builtin.blockinfile:
+        path: "{{ ansible_env.HOME }}/.codex/config.toml"
+        create: true
+        mode: "0644"
+        marker: "# {mark} SERENA MCP (token-diet)"
+        block: |
+          [mcp_servers.serena]
+          command = "uvx"
+          args = ["--from", "git+{{ serena_repo }}", "serena", "start-mcp-server", "--context=codex", "--project-from-cwd"]
+      when:
+        - install_serena
+        - has_codex | bool
+      tags: [serena]
+
+    - name: Serena — note for OpenCode
+      ansible.builtin.debug:
+        msg: >
+          Serena MCP for OpenCode requires manual config.
+          Add to MCP servers: uvx --from git+{{ serena_repo }} serena start-mcp-server --project-from-cwd
+      when:
+        - install_serena
+        - has_opencode | bool
+      tags: [serena]
+
+    # =========================================================================
+    # Overlap fix
+    # =========================================================================
+    - name: Create Serena config directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.config/serena"
+        state: directory
+        mode: "0755"
+      when:
+        - install_tilth
+        - install_serena
+        - not skip_dedup
+      tags: [dedup]
+
+    - name: Write Serena dedup template
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/.config/serena/project.local.template.yml"
+        mode: "0644"
+        content: |
+          # Serena project.local.yml — overlap fix when tilth is also installed
+          # Copy to project root as project.local.yml
+          #
+          # Serena keeps: rename_symbol, find_referencing_symbols, diagnostics, memory
+          # tilth handles: file reading, symbol search, structural outlines
+
+          context: claude-code
+          disabled_tools:
+            - get_symbols_overview
+            - find_symbol
+            - read_file
+      when:
+        - install_tilth
+        - install_serena
+        - not skip_dedup
+      tags: [dedup]
+
+    # =========================================================================
+    # Verification
+    # =========================================================================
+    - name: Gather tool versions
+      ansible.builtin.command: "{{ item.cmd }}"
+      environment:
+        PATH: "{{ cargo_bin }}:{{ local_bin }}:{{ ansible_env.PATH }}"
+      loop:
+        - { name: "RTK",    cmd: "rtk --version" }
+        - { name: "tilth",  cmd: "tilth --version" }
+        - { name: "uv",     cmd: "uv --version" }
+      register: tool_versions
+      failed_when: false
+      changed_when: false
+      tags: [verify]
+
+    - name: Installation summary
+      ansible.builtin.debug:
+        msg: |
+          === token-diet ===
+
+          Tools:
+          {% for r in tool_versions.results %}
+            {{ r.item.name }}: {{ r.stdout | default('not installed') }}
+          {% endfor %}
+
+          Hosts:
+            Claude Code: {{ 'available' if (has_claude | bool) else 'not found' }}
+            Codex CLI:   {{ 'available' if (has_codex | bool) else 'not found' }}
+            OpenCode:    {{ 'available' if (has_opencode | bool) else 'not found' }}
+
+            +--------------------------------------------------+
+            |          Claude Code / Codex / OpenCode           |
+            +--------------------------------------------------+
+                     |                |                |
+                Code reading     Refactoring     Command output
+                     |                |                |
+                +--------+      +---------+      +--------+
+                | tilth  |      | Serena  |      |  RTK   |
+                | (fast) |      |  (deep) |      | (filter)|
+                +--------+      +---------+      +--------+
+                tree-sitter        LSP           regex/truncate
+
+          Dedup: ~/.config/serena/project.local.template.yml
+      tags: [verify]

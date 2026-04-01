@@ -1,0 +1,181 @@
+# token-diet
+
+Put your AI coding sessions on a diet. Three tools, three layers, zero overlap.
+
+## What is this?
+
+`token-diet` is an installer, build system, and compliance kit for a complete token optimization stack. It wires together three complementary tools — with support for both open-source and enterprise (air-gapped) deployment.
+
+| Tool | Layer | What it does |
+|---|---|---|
+| [RTK](https://github.com/rtk-ai/rtk) | Command output | Filters `git log`, `cargo test`, `npm install` — 60-90% savings |
+| [tilth](https://github.com/jahala/tilth) | Code reading | AST-aware file reading + symbol search — 38-44% cost reduction |
+| [Serena](https://github.com/oraios/serena) | Code understanding | LSP-powered symbol navigation, rename, diagnostics |
+
+```
++-----------------------------------------------------------+
+|  Claude Code / Codex / OpenCode / Copilot CLI / VS Code   |
++-----------------------------------------------------------+
+         |                |                |
+    Code reading     Refactoring     Command output
+         |                |                |
+    +--------+      +---------+      +--------+
+    | tilth  |      | Serena  |      |  RTK   |
+    | (fast) |      |  (deep) |      | (filter)|
+    +--------+      +---------+      +--------+
+    tree-sitter        LSP           regex/truncate
+```
+
+## Supported AI Hosts
+
+Auto-detected and configured for:
+
+| Host | RTK | tilth | Serena |
+|---|---|---|---|
+| **Claude Code** | Hook (settings.json) | MCP server | MCP server |
+| **Codex CLI** (OpenAI) | AGENTS.md + RTK.md | MCP server | MCP via config.toml |
+| **OpenCode** | Plugin | MCP server | MCP server |
+| **Copilot CLI** | Shared hooks | MCP server | Shared with VS Code |
+| **VS Code** | — | MCP server | MCP via .vscode/mcp.json |
+
+## Quick Start (Open Source)
+
+Install from upstream repositories (requires internet):
+
+```bash
+# macOS / Linux — install all
+bash scripts/install.sh
+
+# Install specific tool
+bash scripts/install.sh --rtk-only
+
+# Check status
+bash scripts/install.sh --verify
+```
+
+```powershell
+# Windows
+.\scripts\Install.ps1
+.\scripts\Install.ps1 -Tool RTK
+.\scripts\Install.ps1 -VerifyOnly
+```
+
+```bash
+# Ansible
+ansible-playbook scripts/playbook.yml
+ansible-playbook scripts/playbook.yml -e "tools=rtk,tilth"
+```
+
+## Enterprise / Air-Gapped Deployment
+
+Build from audited local forks — no internet required at install time.
+
+### 1. Fork upstream repos to your internal Git server
+
+```bash
+# Clone upstream, push to internal Gitea/Forgejo/GitLab
+git clone https://github.com/rtk-ai/rtk.git
+cd rtk && git remote add internal https://gitea.internal/token-diet/rtk.git
+git push internal main
+# Repeat for tilth and serena
+```
+
+### 2. Update submodule URLs
+
+Edit `.gitmodules` to point to your internal server, then:
+
+```bash
+git submodule update --init --recursive
+```
+
+### 3. Build locally
+
+```bash
+# Build RTK + tilth binaries and Serena Docker image
+bash scripts/build.sh --release
+
+# Artifacts land in dist/
+ls dist/
+# rtk  tilth  serena-image.tar.gz
+```
+
+### 4. Install from local build
+
+```bash
+# Install from dist/ — no crates.io, no PyPI, no GitHub
+bash scripts/install.sh --local
+```
+
+### 5. Distribute to team
+
+```bash
+# Copy binaries to shared location or internal package manager
+cp dist/rtk dist/tilth /path/to/artifact-store/
+docker load < dist/serena-image.tar.gz
+```
+
+## Project Structure
+
+```
+token-diet/
+├── forks/                    # Git submodules (audited forks)
+│   ├── rtk/
+│   ├── tilth/
+│   └── serena/
+├── docker/
+│   ├── Dockerfile.serena     # Air-gapped Serena image
+│   └── compose.yml           # Local Docker compose
+├── scripts/
+│   ├── install.sh            # macOS/Linux installer (--local for air-gapped)
+│   ├── Install.ps1           # Windows installer
+│   ├── playbook.yml          # Ansible playbook
+│   └── build.sh              # Build from forks (no internet)
+├── config/
+│   └── serena-dedup.template.yml  # Overlap fix config
+├── compliance/
+│   ├── SBOM.template.json    # CycloneDX bill of materials
+│   ├── LICENSE-THIRD-PARTY.md
+│   └── security-audit.md     # Per-tool security checklist
+├── docs/
+│   └── comparison.md         # RTK vs tilth vs Serena analysis
+├── dist/                     # Build artifacts (gitignored)
+├── .gitmodules               # Submodule config
+└── .gitignore
+```
+
+## Overlap Fix
+
+tilth and Serena both do code navigation. The installer configures Serena to defer fast operations (file reading, symbol search, outlines) to tilth, keeping Serena for LSP-only operations (rename, references, diagnostics).
+
+Applied per project:
+
+```bash
+cp ~/.config/serena/project.local.template.yml /path/to/project/project.local.yml
+```
+
+See [docs/comparison.md](docs/comparison.md) for the full analysis.
+
+## Security Model
+
+| Concern | Solution |
+|---|---|
+| Supply chain | Build from audited forks, no upstream at runtime |
+| Telemetry | Strip in fork (RTK analytics, Serena tiktoken) |
+| Network isolation | Serena Docker: `network_mode: none` |
+| Reproducibility | Pinned submodules + Cargo.lock + Docker base |
+| Compliance | SBOM, license tracking, audit checklist |
+
+See [compliance/security-audit.md](compliance/security-audit.md) for the full checklist.
+
+## Prerequisites
+
+**Open source mode:**
+- git, curl, Rust toolchain (auto-installed), uv (auto-installed)
+
+**Enterprise mode:**
+- git, Rust toolchain, Docker
+- Internal Git server (Gitea/Forgejo recommended)
+
+## License
+
+MIT — all three upstream tools are MIT-licensed.

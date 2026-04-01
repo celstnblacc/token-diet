@@ -1,0 +1,54 @@
+{
+  "$schema": "https://cyclonedx.org/schema/bom-1.5.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "type": "application",
+      "name": "token-diet",
+      "version": "0.1.0",
+      "description": "AI token optimization stack: RTK + tilth + Serena"
+    },
+    "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
+    "tools": [
+      { "name": "cargo-cyclonedx", "version": "latest" },
+      { "name": "pip-audit", "version": "latest" }
+    ]
+  },
+  "components": [
+    {
+      "type": "application",
+      "name": "rtk",
+      "version": "0.34.3",
+      "purl": "pkg:cargo/rtk@0.34.3",
+      "description": "CLI output compression proxy",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/rtk-ai/rtk" }
+      ]
+    },
+    {
+      "type": "application",
+      "name": "tilth",
+      "version": "0.5.7",
+      "purl": "pkg:cargo/tilth@0.5.7",
+      "description": "Smart code reader with tree-sitter AST",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/jahala/tilth" }
+      ]
+    },
+    {
+      "type": "application",
+      "name": "serena",
+      "version": "0.1.4",
+      "purl": "pkg:pypi/serena@0.1.4",
+      "description": "IDE-like symbol navigation via LSP",
+      "licenses": [{ "license": { "id": "MIT" } }],
+      "externalReferences": [
+        { "type": "vcs", "url": "https://github.com/oraios/serena" }
+      ]
+    }
+  ]
+}
