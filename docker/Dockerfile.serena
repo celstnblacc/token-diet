@@ -43,7 +43,7 @@ COPY --from=builder /opt/serena-venv /opt/serena-venv
 
 # Copy pre-installed LSP servers
 COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=builder /usr/local/bin/tsserver /usr/local/bin/tsserver 2>/dev/null || true
+COPY --from=builder /usr/local/bin/tsserver /usr/local/bin/tsserver
 
 ENV PATH="/opt/serena-venv/bin:$PATH"
 ENV SERENA_NO_TELEMETRY=1
