@@ -1,346 +1,407 @@
 ---
-# token-diet Ansible playbook — RTK + tilth + Serena
-# Configures for Claude Code, Codex CLI, and OpenCode.
+# =============================================================================
+# token-diet — AI Token Optimization Stack
+# RTK + tilth + Serena installer for Linux and macOS remote hosts
 #
 # Usage:
-#   ansible-playbook playbook.yml                        # install all
-#   ansible-playbook playbook.yml -e "tools=rtk,tilth"   # specific tools
-#   ansible-playbook playbook.yml --tags verify           # verify only
+#   ansible-playbook -i inventory.ini scripts/playbook.yml
+#
+#   # Install all tools (online, default):
+#   ansible-playbook -i inventory.ini scripts/playbook.yml
+#
+#   # Install from local forks (air-gap / offline):
+#   ansible-playbook -i inventory.ini scripts/playbook.yml \
+#     --extra-vars "install_mode=local"
+#
+#   # Install only RTK and tilth, skip Serena:
+#   ansible-playbook -i inventory.ini scripts/playbook.yml \
+#     --extra-vars "install_serena=false"
+#
+#   # Skip Claude Code hook/MCP configuration:
+#   ansible-playbook -i inventory.ini scripts/playbook.yml \
+#     --extra-vars "configure_claude=false"
+#
+#   # Run prerequisite checks only:
+#   ansible-playbook -i inventory.ini scripts/playbook.yml --tags prereqs
+#
+#   # Verify installed versions only:
+#   ansible-playbook -i inventory.ini scripts/playbook.yml --tags verify
+#
+# Requirements:
+#   - Ansible >= 2.14
+#   - SSH access to target hosts
+#   - Internet access (online mode) or token-diet repo already cloned (local mode)
+# =============================================================================
 
 - name: token-diet — AI Token Optimization Stack
-  hosts: localhost
-  connection: local
+  hosts: all
   gather_facts: true
+  become: false
 
   vars:
-    tools: "rtk,tilth,serena"
-    rtk_repo: "https://github.com/rtk-ai/rtk"
-    tilth_crate: "tilth"
-    serena_repo: "https://github.com/oraios/serena"
+    # -------------------------------------------------------------------------
+    # Repository configuration
+    # -------------------------------------------------------------------------
+    token_diet_repo: "https://github.com/celstnblacc/token-diet"
+    token_diet_dest: "{{ ansible_env.HOME }}/token-diet"
+
+    # -------------------------------------------------------------------------
+    # Install mode: "online" (default) or "local" (use forks/ submodules)
+    # Override: --extra-vars "install_mode=local"
+    # -------------------------------------------------------------------------
+    install_mode: online
+
+    # -------------------------------------------------------------------------
+    # Tool selection — set any to false to skip that tool
+    # Override: --extra-vars "install_rtk=false"
+    # -------------------------------------------------------------------------
+    install_rtk: true
+    install_tilth: true
+    install_serena: true
+
+    # -------------------------------------------------------------------------
+    # Claude Code integration — set false to skip hook/MCP registration
+    # -------------------------------------------------------------------------
+    configure_claude: true
+
+    # -------------------------------------------------------------------------
+    # Derived paths (do not override)
+    # -------------------------------------------------------------------------
     cargo_bin: "{{ ansible_env.HOME }}/.cargo/bin"
     local_bin: "{{ ansible_env.HOME }}/.local/bin"
-    skip_dedup: false
 
+  # ---------------------------------------------------------------------------
+  # Environment applied to all cargo / uv tasks
+  # ---------------------------------------------------------------------------
+  environment:
+    PATH: "{{ ansible_env.HOME }}/.cargo/bin:{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+
+  handlers:
+    - name: Reload PATH
+      ansible.builtin.debug:
+        msg: >
+          PATH has been updated. If running interactively, source your shell profile:
+          source ~/.bashrc  (Linux) or source ~/.zshrc  (macOS)
+
+  # ===========================================================================
+  # TASKS
+  # ===========================================================================
   tasks:
-    # =========================================================================
-    # Setup
-    # =========================================================================
-    - name: Parse tool selection
-      ansible.builtin.set_fact:
-        install_rtk: "{{ 'rtk' in tools.split(',') or tools == 'all' }}"
-        install_tilth: "{{ 'tilth' in tools.split(',') or tools == 'all' }}"
-        install_serena: "{{ 'serena' in tools.split(',') or tools == 'all' }}"
-        is_macos: "{{ ansible_os_family == 'Darwin' }}"
-        is_linux: "{{ ansible_system == 'Linux' }}"
-        is_windows: "{{ ansible_os_family == 'Windows' }}"
-      tags: [always]
 
     # =========================================================================
-    # Prerequisites
+    # PREREQUISITES
     # =========================================================================
-    - name: Check git
+
+    - name: Prereqs | Check that git is installed
       ansible.builtin.command: git --version
       register: git_check
       changed_when: false
-      tags: [prereq]
+      failed_when: git_check.rc != 0
+      tags: [prereqs]
 
-    # --- Rust -----------------------------------------------------------------
-    - name: Check rustup
-      ansible.builtin.command: rustup --version
-      register: rustup_check
-      changed_when: false
-      failed_when: false
+    - name: Prereqs | Fail with helpful message if git is missing
+      ansible.builtin.fail:
+        msg: >
+          git is required but was not found on {{ inventory_hostname }}.
+          Install git before running this playbook:
+            Linux (Debian/Ubuntu): sudo apt-get install -y git
+            Linux (RHEL/Fedora):   sudo dnf install -y git
+            macOS:                 brew install git
+      when: git_check.rc is defined and git_check.rc != 0
+      tags: [prereqs]
+
+    # --- Rust / Cargo ---------------------------------------------------------
+
+    - name: Prereqs | Check if rustc is already installed
+      ansible.builtin.stat:
+        path: "{{ cargo_bin }}/rustc"
+      register: rustc_stat
       when: install_rtk or install_tilth
-      tags: [prereq]
+      tags: [prereqs]
 
-    - name: Install Rust (Unix)
+    - name: Prereqs | Install Rust via rustup (if not present)
       ansible.builtin.shell: >
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs
+        | sh -s -- -y --default-toolchain stable --no-modify-path
       args:
         creates: "{{ cargo_bin }}/rustc"
       when:
-        - (install_rtk or install_tilth)
-        - rustup_check.rc != 0
-        - not is_windows
-      tags: [prereq]
+        - install_rtk or install_tilth
+        - not rustc_stat.stat.exists
+      notify: Reload PATH
+      tags: [prereqs]
 
-    - name: Install Rust (Windows)
-      ansible.windows.win_command: >
-        winget install --id Rustlang.Rustup --accept-package-agreements --accept-source-agreements
-      when:
-        - (install_rtk or install_tilth)
-        - rustup_check.rc != 0
-        - is_windows
-      tags: [prereq]
-
-    - name: Update Rust stable
-      ansible.builtin.command: rustup update stable --no-self-update
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+    - name: Prereqs | Ensure Rust stable toolchain is up to date
+      ansible.builtin.command: >
+        {{ cargo_bin }}/rustup update stable --no-self-update
       changed_when: false
       failed_when: false
       when: install_rtk or install_tilth
-      tags: [prereq]
+      tags: [prereqs]
 
     # --- uv -------------------------------------------------------------------
-    - name: Check uv
-      ansible.builtin.command: uv --version
-      register: uv_check
-      changed_when: false
-      failed_when: false
+
+    - name: Prereqs | Check if uv is already installed
+      ansible.builtin.stat:
+        path: "{{ local_bin }}/uv"
+      register: uv_stat
       when: install_serena
-      tags: [prereq]
+      tags: [prereqs]
 
-    - name: Install uv (Unix)
+    - name: Prereqs | Install uv (if not present)
       ansible.builtin.shell: curl -LsSf https://astral.sh/uv/install.sh | sh
+      args:
+        creates: "{{ local_bin }}/uv"
       when:
         - install_serena
-        - uv_check.rc != 0
-        - not is_windows
-      tags: [prereq]
+        - not uv_stat.stat.exists
+      notify: Reload PATH
+      tags: [prereqs]
 
-    - name: Install uv (Windows)
-      ansible.windows.win_shell: irm https://astral.sh/uv/install.ps1 | iex
-      when:
-        - install_serena
-        - uv_check.rc != 0
-        - is_windows
-      tags: [prereq]
+    # --- Clone token-diet repo ------------------------------------------------
 
-    # --- AI hosts -------------------------------------------------------------
-    - name: Detect AI hosts
-      ansible.builtin.command: "{{ item.cmd }}"
-      loop:
-        - { name: claude,   cmd: "claude --version" }
-        - { name: codex,    cmd: "codex --version" }
-        - { name: opencode, cmd: "opencode --version" }
-      register: host_checks
-      failed_when: false
+    - name: Prereqs | Clone or update token-diet repository
+      ansible.builtin.git:
+        repo: "{{ token_diet_repo }}"
+        dest: "{{ token_diet_dest }}"
+        update: true
+        force: false
+      register: repo_clone
+      tags: [prereqs]
+
+    - name: Prereqs | Update git submodules (forks/rtk, forks/tilth, etc.)
+      ansible.builtin.command:
+        cmd: git submodule update --init --recursive
+        chdir: "{{ token_diet_dest }}"
       changed_when: false
-      tags: [prereq]
-
-    - name: Set host facts
-      ansible.builtin.set_fact:
-        has_claude: "{{ host_checks.results[0].rc == 0 }}"
-        has_codex: "{{ host_checks.results[1].rc == 0 }}"
-        has_opencode: "{{ host_checks.results[2].rc == 0 }}"
-      tags: [always]
+      tags: [prereqs]
 
     # =========================================================================
     # RTK
     # =========================================================================
-    - name: Install RTK
-      ansible.builtin.command: cargo install --git {{ rtk_repo }} --force
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
+
+    - name: RTK | Install from crates.io git (online mode)
+      ansible.builtin.command: >
+        {{ cargo_bin }}/cargo install
+        --git https://github.com/celstnblacc/rtk
+        --force
+      register: rtk_install_online
+      changed_when: >
+        'Installed' in rtk_install_online.stderr or
+        'Compiling' in rtk_install_online.stderr
+      when:
+        - install_rtk
+        - install_mode == 'online'
+      tags: [rtk]
+
+    - name: RTK | Install from local fork (offline mode)
+      ansible.builtin.command: >
+        {{ cargo_bin }}/cargo install
+        --path {{ token_diet_dest }}/forks/rtk
+        --force
+      register: rtk_install_local
+      changed_when: >
+        'Installed' in rtk_install_local.stderr or
+        'Compiling' in rtk_install_local.stderr
+      when:
+        - install_rtk
+        - install_mode == 'local'
+      tags: [rtk]
+
+    - name: RTK | Configure Claude Code hooks (rtk init -g)
+      ansible.builtin.command: >
+        {{ cargo_bin }}/rtk init -g
+      register: rtk_init
+      changed_when: >
+        'hooks installed' in rtk_init.stdout | lower or
+        'writing' in rtk_init.stdout | lower
+      failed_when: false
+      when:
+        - install_rtk
+        - configure_claude
+      tags: [rtk]
+
+    - name: RTK | Verify installation
+      ansible.builtin.command: "{{ cargo_bin }}/rtk --version"
+      register: rtk_version
+      changed_when: false
+      failed_when: rtk_version.rc != 0
       when: install_rtk
-      register: rtk_install
-      changed_when: "'Installed' in rtk_install.stderr or 'Compiling' in rtk_install.stderr"
-      tags: [rtk]
+      tags: [rtk, verify]
 
-    - name: RTK — init for Claude Code + Codex + OpenCode
-      ansible.builtin.command: rtk init -g --opencode
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
-      when:
-        - install_rtk
-        - has_claude | bool
-        - has_opencode | bool
-      failed_when: false
-      changed_when: false
-      tags: [rtk]
-
-    - name: RTK — init for Claude Code + Codex (no OpenCode)
-      ansible.builtin.command: rtk init -g
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
-      when:
-        - install_rtk
-        - has_claude | bool
-        - not (has_opencode | bool)
-      failed_when: false
-      changed_when: false
-      tags: [rtk]
-
-    - name: RTK — init for Codex only
-      ansible.builtin.command: rtk init --codex
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
-      when:
-        - install_rtk
-        - has_codex | bool
-        - not (has_claude | bool)
-      failed_when: false
-      changed_when: false
-      tags: [rtk]
-
-    - name: RTK — init for OpenCode only
-      ansible.builtin.command: rtk init -g --opencode
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
-      when:
-        - install_rtk
-        - has_opencode | bool
-        - not (has_claude | bool)
-      failed_when: false
-      changed_when: false
-      tags: [rtk]
+    - name: RTK | Confirm version
+      ansible.builtin.debug:
+        msg: "RTK installed OK: {{ rtk_version.stdout | default('(no output)') }}"
+      when: install_rtk
+      tags: [rtk, verify]
 
     # =========================================================================
     # tilth
     # =========================================================================
-    - name: Install tilth
-      ansible.builtin.command: cargo install {{ tilth_crate }} --force
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
-      when: install_tilth
-      register: tilth_install
-      changed_when: "'Installed' in tilth_install.stderr or 'Compiling' in tilth_install.stderr"
-      tags: [tilth]
 
-    - name: tilth — register MCP for each host
-      ansible.builtin.command: "tilth install {{ item.host }}"
-      environment:
-        PATH: "{{ cargo_bin }}:{{ ansible_env.PATH }}"
-      loop:
-        - { host: "claude-code", when: "{{ has_claude }}" }
-        - { host: "codex",       when: "{{ has_codex }}" }
-        - { host: "opencode",    when: "{{ has_opencode }}" }
+    - name: tilth | Install from crates.io git (online mode)
+      ansible.builtin.command: >
+        {{ cargo_bin }}/cargo install
+        --git https://github.com/celstnblacc/tilth
+        --force
+      register: tilth_install_online
+      changed_when: >
+        'Installed' in tilth_install_online.stderr or
+        'Compiling' in tilth_install_online.stderr
       when:
         - install_tilth
-        - item.when | bool
-      failed_when: false
-      changed_when: false
+        - install_mode == 'online'
       tags: [tilth]
+
+    - name: tilth | Install from local fork (offline mode)
+      ansible.builtin.command: >
+        {{ cargo_bin }}/cargo install
+        --path {{ token_diet_dest }}/forks/tilth
+        --force
+      register: tilth_install_local
+      changed_when: >
+        'Installed' in tilth_install_local.stderr or
+        'Compiling' in tilth_install_local.stderr
+      when:
+        - install_tilth
+        - install_mode == 'local'
+      tags: [tilth]
+
+    - name: tilth | Register MCP server for Claude Code (tilth install claude-code)
+      ansible.builtin.command: >
+        {{ cargo_bin }}/tilth install claude-code
+      register: tilth_claude
+      changed_when: >
+        'installed' in tilth_claude.stdout | lower or
+        'registered' in tilth_claude.stdout | lower
+      failed_when: false
+      when:
+        - install_tilth
+        - configure_claude
+      tags: [tilth]
+
+    - name: tilth | Verify installation
+      ansible.builtin.command: "{{ cargo_bin }}/tilth --version"
+      register: tilth_version
+      changed_when: false
+      failed_when: tilth_version.rc != 0
+      when: install_tilth
+      tags: [tilth, verify]
+
+    - name: tilth | Confirm version
+      ansible.builtin.debug:
+        msg: "tilth installed OK: {{ tilth_version.stdout | default('(no output)') }}"
+      when: install_tilth
+      tags: [tilth, verify]
 
     # =========================================================================
     # Serena
     # =========================================================================
-    - name: Verify Serena via uvx
+
+    - name: Serena | Verify uvx can fetch and launch Serena (online probe)
       ansible.builtin.command: >
-        uvx --from git+{{ serena_repo }} serena --help
-      environment:
-        PATH: "{{ local_bin }}:{{ ansible_env.PATH }}"
+        {{ local_bin }}/uvx
+        --from git+https://github.com/celstnblacc/serena
+        serena --help
+      register: serena_probe
+      changed_when: false
+      failed_when: false
       when: install_serena
-      failed_when: false
-      changed_when: false
       tags: [serena]
 
-    - name: Serena — register MCP for Claude Code
-      ansible.builtin.command: >
-        claude mcp add --scope user serena --
-        uvx --from git+{{ serena_repo }} serena start-mcp-server
-        --context=claude-code --project-from-cwd
-      when:
-        - install_serena
-        - has_claude | bool
-      failed_when: false
-      changed_when: false
-      tags: [serena]
-
-    - name: Serena — configure for Codex CLI
-      ansible.builtin.blockinfile:
-        path: "{{ ansible_env.HOME }}/.codex/config.toml"
-        create: true
-        mode: "0644"
-        marker: "# {mark} SERENA MCP (token-diet)"
-        block: |
-          [mcp_servers.serena]
-          command = "uvx"
-          args = ["--from", "git+{{ serena_repo }}", "serena", "start-mcp-server", "--context=codex", "--project-from-cwd"]
-      when:
-        - install_serena
-        - has_codex | bool
-      tags: [serena]
-
-    - name: Serena — note for OpenCode
+    - name: Serena | Warn if Serena probe failed
       ansible.builtin.debug:
         msg: >
-          Serena MCP for OpenCode requires manual config.
-          Add to MCP servers: uvx --from git+{{ serena_repo }} serena start-mcp-server --project-from-cwd
+          WARNING: Serena probe via uvx returned rc={{ serena_probe.rc }}.
+          Serena may not be available or the network is restricted.
+          Claude Code MCP registration will still be attempted.
       when:
         - install_serena
-        - has_opencode | bool
+        - serena_probe.rc is defined
+        - serena_probe.rc != 0
       tags: [serena]
 
-    # =========================================================================
-    # Overlap fix
-    # =========================================================================
-    - name: Create Serena config directory
-      ansible.builtin.file:
-        path: "{{ ansible_env.HOME }}/.config/serena"
-        state: directory
-        mode: "0755"
+    - name: Serena | Register MCP server for Claude Code
+      ansible.builtin.command: >
+        claude mcp add --scope user serena --
+        uvx --from git+https://github.com/celstnblacc/serena
+        serena start-mcp-server
+        --context=claude-code --project-from-cwd
+      register: serena_mcp
+      changed_when: >
+        'added' in serena_mcp.stdout | lower or
+        'registered' in serena_mcp.stdout | lower
+      failed_when: false
       when:
-        - install_tilth
         - install_serena
-        - not skip_dedup
-      tags: [dedup]
+        - configure_claude
+      tags: [serena]
 
-    - name: Write Serena dedup template
-      ansible.builtin.copy:
-        dest: "{{ ansible_env.HOME }}/.config/serena/project.local.template.yml"
-        mode: "0644"
-        content: |
-          # Serena project.local.yml — overlap fix when tilth is also installed
-          # Copy to project root as project.local.yml
-          #
-          # Serena keeps: rename_symbol, find_referencing_symbols, diagnostics, memory
-          # tilth handles: file reading, symbol search, structural outlines
+    - name: Serena | Verify uv is available (required at runtime)
+      ansible.builtin.command: "{{ local_bin }}/uv --version"
+      register: uv_version
+      changed_when: false
+      failed_when: uv_version.rc != 0
+      when: install_serena
+      tags: [serena, verify]
 
-          context: claude-code
-          disabled_tools:
-            - get_symbols_overview
-            - find_symbol
-            - read_file
-      when:
-        - install_tilth
-        - install_serena
-        - not skip_dedup
-      tags: [dedup]
+    - name: Serena | Confirm uv version
+      ansible.builtin.debug:
+        msg: "uv available: {{ uv_version.stdout | default('(no output)') }}"
+      when: install_serena
+      tags: [serena, verify]
 
     # =========================================================================
-    # Verification
+    # SUMMARY
     # =========================================================================
-    - name: Gather tool versions
+
+    - name: Summary | Collect installed tool versions
       ansible.builtin.command: "{{ item.cmd }}"
-      environment:
-        PATH: "{{ cargo_bin }}:{{ local_bin }}:{{ ansible_env.PATH }}"
       loop:
-        - { name: "RTK",    cmd: "rtk --version" }
-        - { name: "tilth",  cmd: "tilth --version" }
-        - { name: "uv",     cmd: "uv --version" }
-      register: tool_versions
+        - name: RTK
+          cmd: "{{ cargo_bin }}/rtk --version"
+          enabled: "{{ install_rtk }}"
+        - name: tilth
+          cmd: "{{ cargo_bin }}/tilth --version"
+          enabled: "{{ install_tilth }}"
+        - name: uv
+          cmd: "{{ local_bin }}/uv --version"
+          enabled: "{{ install_serena }}"
+      when: item.enabled | bool
+      register: summary_versions
       failed_when: false
       changed_when: false
-      tags: [verify]
+      tags: [verify, summary]
 
-    - name: Installation summary
+    - name: Summary | Print installed versions
+      ansible.builtin.debug:
+        msg: >
+          {{ item.item.name }}: {{ item.stdout | default('not installed / error') }}
+      loop: "{{ summary_versions.results }}"
+      when: item.item.enabled | bool
+      loop_control:
+        label: "{{ item.item.name }}"
+      tags: [verify, summary]
+
+    - name: Summary | token-diet installation complete
       ansible.builtin.debug:
         msg: |
-          === token-diet ===
-
-          Tools:
-          {% for r in tool_versions.results %}
-            {{ r.item.name }}: {{ r.stdout | default('not installed') }}
-          {% endfor %}
-
-          Hosts:
-            Claude Code: {{ 'available' if (has_claude | bool) else 'not found' }}
-            Codex CLI:   {{ 'available' if (has_codex | bool) else 'not found' }}
-            OpenCode:    {{ 'available' if (has_opencode | bool) else 'not found' }}
-
-            +--------------------------------------------------+
-            |          Claude Code / Codex / OpenCode           |
-            +--------------------------------------------------+
-                     |                |                |
-                Code reading     Refactoring     Command output
-                     |                |                |
-                +--------+      +---------+      +--------+
-                | tilth  |      | Serena  |      |  RTK   |
-                | (fast) |      |  (deep) |      | (filter)|
-                +--------+      +---------+      +--------+
-                tree-sitter        LSP           regex/truncate
-
-          Dedup: ~/.config/serena/project.local.template.yml
-      tags: [verify]
+          ============================================================
+          token-diet installation complete on {{ inventory_hostname }}
+          ============================================================
+          install_mode  : {{ install_mode }}
+          install_rtk   : {{ install_rtk }}
+          install_tilth : {{ install_tilth }}
+          install_serena: {{ install_serena }}
+          configure_claude: {{ configure_claude }}
+          repo cloned to: {{ token_diet_dest }}
+          ============================================================
+          Next steps:
+            1. Open a new shell (or source ~/.bashrc / ~/.zshrc) to
+               pick up updated PATH entries.
+            2. Run: rtk --version && tilth --version
+            3. Run: rtk gain   (confirm token savings tracking works)
+            4. In a Claude Code session: git status
+               (should be transparently rewritten to: rtk git status)
+          ============================================================
+      tags: [verify, summary]
