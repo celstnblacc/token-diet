@@ -15,9 +15,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # --- Configuration -----------------------------------------------------------
-RTK_REPO="https://github.com/rtk-ai/rtk"
-TILTH_CRATE="tilth"
-SERENA_REPO="https://github.com/oraios/serena"
+RTK_REPO="https://github.com/celstnblacc/rtk"
+TILTH_REPO="https://github.com/celstnblacc/tilth"
+SERENA_REPO="https://github.com/celstnblacc/serena"
 
 # Colors
 if [ -t 1 ]; then
@@ -181,7 +181,7 @@ install_tilth() {
       ok "tilth built and installed from fork"
     fi
   else
-    cargo install "$TILTH_CRATE" --force 2>&1 | tail -5
+    cargo install --git "$TILTH_REPO" --force 2>&1 | tail -5
     ok "tilth installed: $(tilth --version 2>/dev/null)"
   fi
 
@@ -291,7 +291,7 @@ TOML
   "servers": {
     "serena": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context=ide", "--project-from-cwd"]
+      "args": ["--from", "git+https://github.com/celstnblacc/serena", "serena", "start-mcp-server", "--context=ide", "--project-from-cwd"]
     },
     "tilth": {
       "command": "tilth",
