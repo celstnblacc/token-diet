@@ -33,9 +33,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 # --- Configuration -----------------------------------------------------------
-$RTK_REPO = "https://github.com/rtk-ai/rtk"
-$TILTH_CRATE = "tilth"
-$SERENA_REPO = "https://github.com/oraios/serena"
+$RTK_REPO    = "https://github.com/celstnblacc/rtk"
+$TILTH_REPO  = "https://github.com/celstnblacc/tilth"
+$SERENA_REPO = "https://github.com/celstnblacc/serena"
 
 # --- Helpers ------------------------------------------------------------------
 function Write-Info   { param($msg) Write-Host "[info]  $msg" -ForegroundColor Cyan }
@@ -136,7 +136,7 @@ function Install-Tilth {
         Write-Info "Upgrading..."
     }
 
-    cargo install $TILTH_CRATE --force 2>&1 | Select-Object -Last 5
+    cargo install --git $TILTH_REPO --force 2>&1 | Select-Object -Last 5
     Write-Ok "tilth installed: $(tilth --version 2>$null)"
 
     # Host integration
@@ -277,15 +277,76 @@ function Verify-Stack {
 "@
 }
 
+# --- Interactive wizard -------------------------------------------------------
+function Invoke-Wizard {
+    Write-Host ""
+    Write-Host "  token-diet interactive installer" -ForegroundColor White
+    Write-Host "  RTK + tilth + Serena — security-patched forks" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Tools:" -ForegroundColor Gray
+    Write-Host "    RTK    — CLI output compression (60-90% token savings)" -ForegroundColor Gray
+    Write-Host "    tilth  — smart code reading via tree-sitter AST" -ForegroundColor Gray
+    Write-Host "    Serena — IDE-like symbol navigation via LSP" -ForegroundColor Gray
+    Write-Host ""
+
+    # Which tools?
+    $answer = Read-Host "Install all three tools? [Y/n]"
+    if ($answer -match '^[Nn]') {
+        $r = Read-Host "  Install RTK?    [Y/n]"
+        $t = Read-Host "  Install tilth?  [Y/n]"
+        $s = Read-Host "  Install Serena? [Y/n]"
+        $script:WizardRtk    = $r -notmatch '^[Nn]'
+        $script:WizardTilth  = $t -notmatch '^[Nn]'
+        $script:WizardSerena = $s -notmatch '^[Nn]'
+    } else {
+        $script:WizardRtk = $true; $script:WizardTilth = $true; $script:WizardSerena = $true
+    }
+
+    # Skip dedup?
+    if ($script:WizardTilth -and $script:WizardSerena) {
+        $d = Read-Host "Configure Serena/tilth overlap fix? [Y/n]"
+        $script:WizardDedup = $d -notmatch '^[Nn]'
+    } else {
+        $script:WizardDedup = $false
+    }
+
+    Write-Host ""
+    Write-Host "Ready to install:" -ForegroundColor White
+    if ($script:WizardRtk)    { Write-Host "  + RTK"    -ForegroundColor Green }
+    if ($script:WizardTilth)  { Write-Host "  + tilth"  -ForegroundColor Green }
+    if ($script:WizardSerena) { Write-Host "  + Serena" -ForegroundColor Green }
+    if ($script:WizardDedup)  { Write-Host "  + Overlap fix" -ForegroundColor Green }
+    Write-Host ""
+
+    $confirm = Read-Host "Proceed? [Y/n]"
+    if ($confirm -match '^[Nn]') { Write-Host "Aborted."; exit 0 }
+}
+
 # --- Main ---------------------------------------------------------------------
 Write-Host "`n=== token-diet ===" -ForegroundColor White
 Write-Host "    RTK + tilth + Serena`n" -ForegroundColor White
 
 if ($VerifyOnly) { Verify-Stack; exit 0 }
 
-$doRtk    = $Tool -eq "All" -or $Tool -eq "RTK"
-$doTilth  = $Tool -eq "All" -or $Tool -eq "tilth"
-$doSerena = $Tool -eq "All" -or $Tool -eq "Serena"
+# Interactive mode when invoked with no arguments
+$interactive = ($PSBoundParameters.Count -eq 0 -and $Tool -eq "All" -and -not $SkipDedup)
+$script:WizardRtk    = $false
+$script:WizardTilth  = $false
+$script:WizardSerena = $false
+$script:WizardDedup  = $true
+
+if ($interactive) {
+    Invoke-Wizard
+    $doRtk    = $script:WizardRtk
+    $doTilth  = $script:WizardTilth
+    $doSerena = $script:WizardSerena
+    $skipDedup = -not $script:WizardDedup
+} else {
+    $doRtk    = $Tool -eq "All" -or $Tool -eq "RTK"
+    $doTilth  = $Tool -eq "All" -or $Tool -eq "tilth"
+    $doSerena = $Tool -eq "All" -or $Tool -eq "Serena"
+    $skipDedup = $SkipDedup
+}
 
 Write-Header "Prerequisites"
 Ensure-Git
@@ -298,6 +359,6 @@ if ($doRtk)    { Install-RTK }
 if ($doTilth)  { Install-Tilth }
 if ($doSerena) { Install-Serena }
 
-if (-not $SkipDedup -and $doTilth -and $doSerena) { Configure-Dedup }
+if (-not $skipDedup -and $doTilth -and $doSerena) { Configure-Dedup }
 
 Verify-Stack
