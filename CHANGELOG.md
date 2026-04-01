@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 * `CLAUDE.md` — project guidance for Claude Code sessions (structure, commands, conventions)
 * `README.md` — project overview for the token-diet installer stack
+* `README.md` — internal forge mirroring guide: staying in sync with `--mirror`, Forgejo/GitLab pull mirror tip
 
 ### Fixed
 
