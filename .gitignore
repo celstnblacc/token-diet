@@ -12,3 +12,5 @@ dist/
 excalidraw.log
 __pycache__/
 *.pyc
+*.p12
+*.env.*

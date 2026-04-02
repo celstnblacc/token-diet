@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# tkd — token-diet stack dashboard
+# token-diet — token optimization stack dashboard
 # Shows combined token savings and health across RTK + tilth + Serena.
 #
 # Usage:
-#   tkd gain           Show token savings dashboard (default)
-#   tkd version        Show versions of all three tools
-#   tkd verify         Re-run installation verification
-#   tkd --help         Show this help
+#   token-diet gain           Show token savings dashboard (default)
+#   token-diet health         Quick health check: tools + MCP hosts
+#   token-diet version        Show versions of all three tools
+#   token-diet verify         Re-run installation verification
+#   token-diet uninstall      Remove all token-diet components
+#   token-diet --help         Show this help
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Colors -------------------------------------------------------------------
 if [ -t 1 ]; then
@@ -199,38 +203,86 @@ cmd_version() {
 }
 
 cmd_verify() {
-  local script_dir; script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  bash "$script_dir/install.sh" --verify
+  bash "$SCRIPT_DIR/install.sh" --verify
 }
 
 cmd_dashboard() {
   local dashboard_bin
   # Prefer the installed copy, fall back to script-dir sibling
-  if command -v tkd-dashboard &>/dev/null; then
-    dashboard_bin="$(command -v tkd-dashboard)"
+  if command -v token-diet-dashboard &>/dev/null; then
+    dashboard_bin="$(command -v token-diet-dashboard)"
   else
-    local script_dir; script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    dashboard_bin="$script_dir/tkd-dashboard"
+    dashboard_bin="$SCRIPT_DIR/token-diet-dashboard"
   fi
   if [ ! -f "$dashboard_bin" ]; then
-    echo "tkd-dashboard not found — run: bash install.sh" >&2; exit 1
+    echo "token-diet-dashboard not found — run: bash install.sh" >&2; exit 1
   fi
   exec python3 "$dashboard_bin" "$@"
+}
+
+cmd_health() {
+  local issues=0
+  echo -e "\n${BOLD}token-diet health${NC}\n"
+
+  # RTK
+  if check_cmd rtk && rtk gain --help &>/dev/null 2>&1; then
+    local rtk_ver; rtk_ver=$(rtk --version 2>/dev/null | awk '{print $2}') || true
+    ok "RTK ${rtk_ver}"
+  else
+    miss "RTK not found"
+    issues=$(( issues + 1 ))
+  fi
+
+  # tilth
+  if check_cmd tilth; then
+    local tilth_ver; tilth_ver=$(tilth --version 2>/dev/null | awk '{print $2}') || true
+    local tilth_hosts; tilth_hosts=$(hosts_registered "tilth")
+    ok "tilth ${tilth_ver}  (hosts: ${tilth_hosts})"
+  else
+    miss "tilth not found"
+    issues=$(( issues + 1 ))
+  fi
+
+  # Serena
+  if check_cmd uvx || docker image inspect token-diet/serena:latest &>/dev/null 2>&1; then
+    local serena_hosts; serena_hosts=$(hosts_registered "serena")
+    ok "Serena  (hosts: ${serena_hosts})"
+  else
+    miss "Serena not found  (uvx or Docker required)"
+    issues=$(( issues + 1 ))
+  fi
+
+  echo ""
+  if [ "$issues" -eq 0 ]; then
+    echo -e "  ${GREEN}${BOLD}All tools healthy${NC}"
+    echo ""
+    return 0
+  else
+    echo -e "  ${YELLOW}${BOLD}${issues} tool(s) missing — run: bash install.sh${NC}"
+    echo ""
+    return 1
+  fi
+}
+
+cmd_uninstall() {
+  bash "$SCRIPT_DIR/uninstall.sh" "$@"
 }
 
 cmd_help() {
   cat << EOF
 
-${BOLD}tkd${NC} — token-diet stack dashboard
+${BOLD}token-diet${NC} — token optimization stack dashboard
 
 ${BOLD}USAGE${NC}
-  tkd [command]
+  token-diet [command]
 
 ${BOLD}COMMANDS${NC}
   gain         Show token savings dashboard across RTK + tilth + Serena  (default)
+  health       Quick health check: tools responding + MCP hosts registered
   dashboard    Open live browser dashboard  [--port N]
   version      Show installed versions of all three tools
   verify       Re-run installation verification
+  uninstall    Remove all token-diet components  [--dry-run] [--force]
   --help       Show this help
 
 ${BOLD}TOOLS${NC}
@@ -248,9 +300,11 @@ EOF
 # --- Dispatch -----------------------------------------------------------------
 case "${1:-gain}" in
   gain)              cmd_gain ;;
+  health)            cmd_health ;;
   dashboard)         shift; cmd_dashboard "$@" ;;
   version|versions)  cmd_version ;;
   verify)            cmd_verify ;;
+  uninstall)         shift; cmd_uninstall "$@" ;;
   --help|-h|help)    cmd_help ;;
   *)  echo "Unknown command: $1"; cmd_help; exit 1 ;;
 esac
