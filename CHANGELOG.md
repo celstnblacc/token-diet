@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `docs/roadmap.md` — product roadmap: four-layer token optimization thesis and gap analysis
+
+### Changed
+- Added `__pycache__/` and `*.pyc` to `.gitignore`
+
+## [Unreleased]
+
 ## [Unreleased] — 2026-04-02
 
 ### Changed

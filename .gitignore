@@ -10,3 +10,5 @@ target/
 .vscode/
 dist/
 excalidraw.log
+__pycache__/
+*.pyc
