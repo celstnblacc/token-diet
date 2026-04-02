@@ -77,6 +77,11 @@ After installation, `token-diet` is available globally:
 ```bash
 token-diet                  # token savings summary (RTK + tilth + Serena)
 token-diet health           # quick health check: tools + MCP host registrations
+token-diet breakdown        # top commands by tokens saved  [--limit N]
+token-diet explain <cmd>    # per-command cost: tokens in/out/saved, efficiency
+token-diet budget init      # create .token-budget with warn/hard thresholds
+token-diet budget status    # usage vs budget (exits 0=OK, 2=WARN, 3=HARD STOP)
+token-diet loops            # detect agent loop patterns (commands run 3+ times)
 token-diet dashboard        # live browser dashboard at http://127.0.0.1:7384
 token-diet dashboard --port 8080
 token-diet version          # show installed versions

@@ -85,6 +85,47 @@ MOCK
   chmod +x "$TMP_BIN/rtk"
 }
 
+# mock_cmd_with_history
+# Extends mock_cmd_with_gain to handle: gain --history --format json
+mock_cmd_with_history() {
+  cat > "$TMP_BIN/rtk" << 'MOCK'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo "rtk 0.34.3-mock"; exit 0 ;;
+  gain)
+    case "$2" in
+      --help)    echo "Usage: rtk gain [OPTIONS]"; exit 0 ;;
+      --history) echo '{"summary":{"total_commands":10,"total_input":65000,"total_saved":50000,"avg_savings_pct":76.9,"total_time_ms":300},"commands":[{"cmd":"cargo test","count":5,"total_input":50000,"total_saved":40000,"avg_pct":80.0},{"cmd":"git log","count":3,"total_input":12000,"total_saved":9000,"avg_pct":75.0},{"cmd":"npm test","count":2,"total_input":3000,"total_saved":1000,"avg_pct":33.3}]}'; exit 0 ;;
+      --format)  echo '{"summary":{"total_commands":10,"total_input":65000,"total_saved":50000,"avg_savings_pct":76.9,"total_time_ms":300},"daily":[]}'; exit 0 ;;
+      --daily)   echo '{"summary":{"total_commands":10,"total_input":65000,"total_saved":50000,"avg_savings_pct":76.9,"total_time_ms":300},"daily":[]}'; exit 0 ;;
+      *)         echo "Usage: rtk gain [OPTIONS]"; exit 0 ;;
+    esac ;;
+  *)  exit 0 ;;
+esac
+MOCK
+  chmod +x "$TMP_BIN/rtk"
+}
+
+# mock_cmd_no_loops
+# RTK mock whose history has all command counts below the loop threshold (3)
+mock_cmd_no_loops() {
+  cat > "$TMP_BIN/rtk" << 'MOCK'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo "rtk 0.34.3-mock"; exit 0 ;;
+  gain)
+    case "$2" in
+      --help)    echo "Usage: rtk gain [OPTIONS]"; exit 0 ;;
+      --history) echo '{"summary":{},"commands":[{"cmd":"git status","count":1,"total_input":500,"total_saved":400,"avg_pct":80.0},{"cmd":"ls","count":2,"total_input":200,"total_saved":160,"avg_pct":80.0}]}'; exit 0 ;;
+      --format)  echo '{"summary":{"total_commands":3,"total_input":700,"total_saved":560,"avg_savings_pct":80.0,"total_time_ms":50},"daily":[]}'; exit 0 ;;
+      *)         echo "Usage: rtk gain [OPTIONS]"; exit 0 ;;
+    esac ;;
+  *)  exit 0 ;;
+esac
+MOCK
+  chmod +x "$TMP_BIN/rtk"
+}
+
 # mock_mcp_config "host" "tool"
 # Writes a fake MCP config file for the given host with the tool registered.
 # Safe to call multiple times — merges into existing JSON.

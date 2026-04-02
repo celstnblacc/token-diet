@@ -109,3 +109,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 * `scripts/Install.ps1` — `-Verbose` switch: replaces `Select-Object -Last 5` with `Show-Output` helper; logs to `%LOCALAPPDATA%\Programs\token-diet\install.log`
 * `scripts/Uninstall.ps1` — Windows uninstaller: mirrors `uninstall.sh` for all Windows paths; supports `-DryRun`, `-Force`, `-IncludeData`, `-IncludeDocker`
 * `tests/Uninstall.Tests.ps1` — Pester v5 tests for Windows uninstaller (run on Windows/WSL)
+
+## [Unreleased] — Iteration 2
+
+### Added
+
+* `token-diet breakdown` — top commands by tokens saved from RTK history; `--limit N` to cap rows
+* `token-diet explain <cmd>` — per-command cost breakdown: tokens in/out/saved, efficiency bar
+* `scripts/token-diet-dashboard` — `breakdown_stats()` added; `collect()` now includes `breakdown` key in `/api/stats`
+* `tests/test_helper.bash` — `mock_cmd_with_history()` helper for breakdown/explain tests
+* 8 new bats tests (cycles 6.1-6.4, 7.1-7.3) + 3 new pytest tests (cycles 8.1-8.2)
+
+## [Unreleased] — Iteration 3
+
+### Added
+
+* `token-diet budget init` — creates `.token-budget` in cwd with default warn (50K) and hard (100K) thresholds
+* `token-diet budget status` — shows token usage vs thresholds; exits 0 (OK), 2 (WARN), 3 (HARD STOP)
+* `token-diet loops` — detects agent loop patterns (commands run ≥3 times in RTK history); exits 1 with flagged commands
+* `scripts/token-diet-dashboard` — `budget_stats()` added; `collect()` now includes `budget` key in `/api/stats`
+* `tests/test_helper.bash` — `mock_cmd_no_loops()` helper for clean-history loop detection tests
+* 9 new bats tests (cycles 9.1-9.4, 10.1-10.3 + budget init/status) + 3 new pytest tests (cycles 11.1-11.2)

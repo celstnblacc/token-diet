@@ -96,3 +96,206 @@ load test_helper
   [ "$status" -eq 0 ]
   [ ! -f "$TMP_HOME/.local/bin/token-diet-dashboard" ]
 }
+
+# ---------------------------------------------------------------------------
+# Cycle 6.1 — breakdown: dispatch
+# ---------------------------------------------------------------------------
+
+@test "breakdown: exits 1 when RTK not available" {
+  for tool in rtk tilth uvx docker; do
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP_BIN/$tool"
+    chmod +x "$TMP_BIN/$tool"
+  done
+  run "$SCRIPTS_DIR/token-diet" breakdown
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"RTK"* ]]
+}
+
+@test "breakdown: exits 0 when RTK present" {
+  mock_cmd_with_history
+  run "$SCRIPTS_DIR/token-diet" breakdown
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 6.2 — breakdown: shows top commands ranked by tokens saved
+# ---------------------------------------------------------------------------
+
+@test "breakdown: shows command names from RTK history" {
+  mock_cmd_with_history
+  run "$SCRIPTS_DIR/token-diet" breakdown
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cargo test"* ]]
+  [[ "$output" == *"git log"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 6.3 — breakdown: --limit N
+# ---------------------------------------------------------------------------
+
+@test "breakdown: --limit 1 shows only one command" {
+  mock_cmd_with_history
+  run "$SCRIPTS_DIR/token-diet" breakdown --limit 1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cargo test"* ]]
+  [[ "$output" != *"npm test"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 6.4 — breakdown: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes breakdown command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"breakdown"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 7.1 — explain: no data for unknown command
+# ---------------------------------------------------------------------------
+
+@test "explain: exits 1 with message for unknown command" {
+  mock_cmd_with_history
+  run "$SCRIPTS_DIR/token-diet" explain "unknown-cmd-xyz"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no data"* ]] || [[ "$output" == *"not found"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 7.2 — explain: shows breakdown for known command
+# ---------------------------------------------------------------------------
+
+@test "explain: shows input/saved/pct for a known command" {
+  mock_cmd_with_history
+  run "$SCRIPTS_DIR/token-diet" explain "cargo test"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cargo test"* ]]
+  [[ "$output" == *"80"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 7.3 — explain: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes explain command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"explain"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 9.1 — budget init: creates .token-budget in cwd
+# ---------------------------------------------------------------------------
+
+@test "budget init: creates .token-budget in current directory" {
+  cd "$TMP_HOME"
+  run "$SCRIPTS_DIR/token-diet" budget init
+  [ "$status" -eq 0 ]
+  [ -f "$TMP_HOME/.token-budget" ]
+}
+
+@test "budget init: .token-budget contains warn and hard thresholds" {
+  cd "$TMP_HOME"
+  run "$SCRIPTS_DIR/token-diet" budget init
+  [ "$status" -eq 0 ]
+  python3 - "$TMP_HOME/.token-budget" << 'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert "warn" in d, "missing warn"
+assert "hard" in d, "missing hard"
+PY
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 9.2 — budget status: reads budget and shows usage
+# ---------------------------------------------------------------------------
+
+@test "budget status: exits 0 and shows thresholds when budget exists" {
+  cd "$TMP_HOME"
+  # warn=200K hard=500K — mock uses 65K (below warn), so status is OK (exit 0)
+  printf '{"warn":200000,"hard":500000}\n' > "$TMP_HOME/.token-budget"
+  mock_cmd_with_history
+  run "$SCRIPTS_DIR/token-diet" budget status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"200"* ]] || [[ "$output" == *"500"* ]]
+}
+
+@test "budget status: exits 1 with hint when no .token-budget found" {
+  cd "$TMP_HOME"
+  run "$SCRIPTS_DIR/token-diet" budget status
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"budget init"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 9.3 — budget status: exits 2 when over warn threshold
+# ---------------------------------------------------------------------------
+
+@test "budget status: exits 2 when RTK usage exceeds warn threshold" {
+  cd "$TMP_HOME"
+  # warn=100 hard=1000000 — mock uses 65K (above warn, below hard) → WARN exit 2
+  printf '{"warn":100,"hard":1000000}\n' > "$TMP_HOME/.token-budget"
+  mock_cmd_with_history
+  run "$SCRIPTS_DIR/token-diet" budget status
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"WARN"* ]] || [[ "$output" == *"warn"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 9.4 — budget: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes budget command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"budget"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 10.1 — loops: exits 0 when no repeated commands
+# ---------------------------------------------------------------------------
+
+@test "loops: exits 0 with clean message when no loops detected" {
+  mock_cmd_no_loops
+  run "$SCRIPTS_DIR/token-diet" loops
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No loops"* ]] || [[ "$output" == *"no loops"* ]] || [[ "$output" == *"clean"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 10.2 — loops: detects commands run 3+ times
+# ---------------------------------------------------------------------------
+
+@test "loops: exits 1 and flags commands run 3+ times" {
+  # Plant a mock rtk that reports a looped command (count >= 3)
+  cat > "$TMP_BIN/rtk" << 'MOCK'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo "rtk 0.34.3-mock"; exit 0 ;;
+  gain)
+    case "$2" in
+      --help)    echo "Usage: rtk gain [OPTIONS]"; exit 0 ;;
+      --history) echo '{"summary":{},"commands":[{"cmd":"cargo build","count":7,"total_input":70000,"total_saved":56000,"avg_pct":80.0},{"cmd":"git status","count":2,"total_input":1000,"total_saved":800,"avg_pct":80.0}]}'; exit 0 ;;
+      --format)  echo '{"summary":{"total_commands":9,"total_input":71000,"total_saved":56800,"avg_savings_pct":80.0,"total_time_ms":100},"daily":[]}'; exit 0 ;;
+      *)         echo "Usage: rtk gain [OPTIONS]"; exit 0 ;;
+    esac ;;
+  *)  exit 0 ;;
+esac
+MOCK
+  chmod +x "$TMP_BIN/rtk"
+
+  run "$SCRIPTS_DIR/token-diet" loops
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"cargo build"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 10.3 — loops: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes loops command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"loops"* ]]
+}

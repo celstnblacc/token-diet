@@ -268,6 +268,243 @@ cmd_uninstall() {
   bash "$SCRIPT_DIR/uninstall.sh" "$@"
 }
 
+# Find .token-budget walking up from cwd toward $HOME
+find_budget_file() {
+  local dir="$PWD"
+  while [[ "$dir" == "$HOME"* ]]; do
+    [ -f "$dir/.token-budget" ] && echo "$dir/.token-budget" && return 0
+    [ "$dir" = "$HOME" ] && break
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+cmd_budget() {
+  local subcmd="${1:-status}"
+  shift || true
+
+  case "$subcmd" in
+    init)
+      local target="$PWD/.token-budget"
+      if [ -f "$target" ]; then
+        warn ".token-budget already exists at $target"
+        return 0
+      fi
+      python3 - "$target" << 'PY'
+import json, sys
+d = {"warn": 50000, "hard": 100000}
+with open(sys.argv[1], "w") as f:
+    json.dump(d, f, indent=2)
+    f.write("\n")
+PY
+      ok "Created $target  (warn: 50K, hard: 100K tokens)"
+      ;;
+
+    status)
+      local budget_file
+      if ! budget_file=$(find_budget_file); then
+        echo -e "  ${YELLOW}No .token-budget found in this project.${NC}"
+        echo -e "  Run: ${BOLD}token-diet budget init${NC}  to create one."
+        return 1
+      fi
+
+      local warn_t hard_t
+      warn_t=$(python3 -c "import json; d=json.load(open('$budget_file')); print(d['warn'])" 2>/dev/null) || warn_t=50000
+      hard_t=$(python3 -c "import json; d=json.load(open('$budget_file')); print(d['hard'])" 2>/dev/null) || hard_t=100000
+
+      local used=0
+      if check_cmd rtk && rtk gain --help &>/dev/null 2>&1; then
+        used=$(rtk gain --format json 2>/dev/null \
+          | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['summary']['total_input'])" 2>/dev/null) || used=0
+      fi
+
+      local remaining=$(( hard_t - used ))
+      local pct=0
+      [ "$hard_t" -gt 0 ] && pct=$(( used * 100 / hard_t ))
+
+      echo -e "\n${BOLD}token-diet budget${NC}  ${DIM}($budget_file)${NC}\n"
+      printf "  %-20s %s\n" "Used:"      "$(human_tokens "$used")"
+      printf "  %-20s %s\n" "Warn at:"   "$(human_tokens "$warn_t")"
+      printf "  %-20s %s\n" "Hard stop:" "$(human_tokens "$hard_t")"
+      printf "  %-20s %s\n" "Remaining:" "$(human_tokens "$remaining")"
+      echo -e "  Burn-down:  ${CYAN}$(bar "$pct")${NC}  ${BOLD}${pct}%${NC}"
+      echo ""
+
+      if [ "$used" -ge "$hard_t" ]; then
+        echo -e "  ${RED}${BOLD}HARD STOP — budget exhausted (${pct}%)${NC}"
+        echo ""
+        return 3
+      elif [ "$used" -ge "$warn_t" ]; then
+        echo -e "  ${YELLOW}${BOLD}WARN — approaching hard stop (${pct}%)${NC}"
+        echo ""
+        return 2
+      else
+        echo -e "  ${GREEN}${BOLD}Budget OK${NC}"
+        echo ""
+        return 0
+      fi
+      ;;
+
+    *)
+      echo "Usage: token-diet budget <init|status>" >&2
+      return 1
+      ;;
+  esac
+}
+
+cmd_loops() {
+  if ! check_cmd rtk || ! rtk gain --help &>/dev/null 2>&1; then
+    echo -e "  ${RED}RTK not installed — loop detection requires RTK${NC}" >&2
+    return 1
+  fi
+
+  local json; json=$(rtk gain --history 2>/dev/null) || true
+  if [ -z "$json" ]; then
+    echo -e "  ${YELLOW}No RTK history yet${NC}"
+    return 0
+  fi
+
+  local threshold=3
+  local loops_found
+  loops_found=$(python3 - "$json" "$threshold" << 'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+threshold = int(sys.argv[2])
+loops = [c for c in data.get("commands", []) if c.get("count", 0) >= threshold]
+loops_sorted = sorted(loops, key=lambda c: c["count"], reverse=True)
+for c in loops_sorted:
+    wasted = c.get("total_input", 0) - c.get("total_saved", 0)
+    print(f'{c["cmd"]}\t{c["count"]}\t{wasted}')
+PY
+  ) || true
+
+  echo -e "\n${BOLD}=== token-diet loops ===${NC}\n"
+
+  if [ -z "$loops_found" ]; then
+    echo -e "  ${GREEN}No loops detected — all commands run < ${threshold} times${NC}"
+    echo ""
+    return 0
+  fi
+
+  echo -e "${BOLD}Repeated commands  ${DIM}(≥${threshold} runs — potential agent loops)${NC}"
+  echo -e "${DIM}$(printf '%.0s─' {1..52})${NC}"
+  while IFS=$'\t' read -r cmd count wasted; do
+    echo -e "  ${RED}✗${NC}  ${BOLD}${cmd}${NC}  — ${count}x  (~$(human_tokens "$wasted") tokens lost to repetition)"
+  done <<< "$loops_found"
+  echo ""
+  echo -e "  ${YELLOW}Tip: instruct your agent to cache results or use tilth for repeated reads${NC}"
+  echo ""
+  return 1
+}
+
+cmd_breakdown() {
+  local limit=10
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --limit) limit="$2"; shift ;;
+      *) ;;
+    esac
+    shift
+  done
+
+  if ! check_cmd rtk || ! rtk gain --help &>/dev/null 2>&1; then
+    echo -e "  ${RED}RTK not installed — breakdown requires RTK${NC}" >&2
+    return 1
+  fi
+
+  local json; json=$(rtk gain --history 2>/dev/null) || true
+  if [ -z "$json" ]; then
+    echo -e "  ${YELLOW}No RTK history yet — run some commands first${NC}"
+    return 0
+  fi
+
+  echo -e "\n${BOLD}=== token-diet breakdown ===${NC}\n"
+  echo -e "${BOLD}Top commands by tokens saved${NC}  ${DIM}(limit: ${limit})${NC}"
+  echo -e "${DIM}$(printf '%.0s─' {1..52})${NC}"
+
+  python3 - "$json" "$limit" << 'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+limit = int(sys.argv[2])
+cmds = data.get("commands", [])
+cmds_sorted = sorted(cmds, key=lambda c: c.get("total_saved", 0), reverse=True)[:limit]
+for i, c in enumerate(cmds_sorted, 1):
+    saved = c.get("total_saved", 0)
+    pct   = c.get("avg_pct", 0)
+    count = c.get("count", 0)
+    inp   = c.get("total_input", 0)
+    label = c["cmd"][:34]
+    saved_k = f"{saved/1000:.1f}K" if saved >= 1000 else str(saved)
+    inp_k   = f"{inp/1000:.1f}K"   if inp   >= 1000 else str(inp)
+    print(f"  {i:>2}. {label:<36} {saved_k:>7} saved  {pct:>5.1f}%  ({count}x, {inp_k} in)")
+PY
+
+  echo ""
+}
+
+cmd_explain() {
+  local target="$1"
+  if [ -z "$target" ]; then
+    echo "Usage: token-diet explain <command>" >&2
+    return 1
+  fi
+
+  if ! check_cmd rtk || ! rtk gain --help &>/dev/null 2>&1; then
+    echo -e "  ${RED}RTK not installed — explain requires RTK${NC}" >&2
+    return 1
+  fi
+
+  local json; json=$(rtk gain --history 2>/dev/null) || true
+  if [ -z "$json" ]; then
+    echo -e "  ${YELLOW}No RTK history yet — run some commands first${NC}"
+    return 1
+  fi
+
+  local result
+  result=$(python3 - "$json" "$target" << 'PY'
+import json, sys
+data   = json.loads(sys.argv[1])
+target = sys.argv[2]
+match  = next((c for c in data.get("commands", []) if c["cmd"] == target), None)
+if not match:
+    sys.exit(1)
+saved = match.get("total_saved", 0)
+inp   = match.get("total_input",  0)
+pct   = match.get("avg_pct",      0)
+count = match.get("count",        0)
+out   = inp - saved
+print(f"cmd={match['cmd']}")
+print(f"count={count}")
+print(f"input={inp}")
+print(f"output={out}")
+print(f"saved={saved}")
+print(f"pct={pct}")
+PY
+  ) || true
+
+  if [ -z "$result" ]; then
+    echo -e "  ${YELLOW}No data for '${target}' — not found in RTK history${NC}"
+    return 1
+  fi
+
+  local cmd count inp out saved pct
+  cmd=$(echo "$result"   | grep "^cmd="    | cut -d= -f2-)
+  count=$(echo "$result" | grep "^count="  | cut -d= -f2-)
+  inp=$(echo "$result"   | grep "^input="  | cut -d= -f2-)
+  out=$(echo "$result"   | grep "^output=" | cut -d= -f2-)
+  saved=$(echo "$result" | grep "^saved="  | cut -d= -f2-)
+  pct=$(echo "$result"   | grep "^pct="    | cut -d= -f2-)
+
+  echo -e "\n${BOLD}=== token-diet explain ===${NC}\n"
+  echo -e "${BOLD}${cmd}${NC}  ${DIM}(${count} runs)${NC}"
+  echo -e "${DIM}$(printf '%.0s─' {1..44})${NC}"
+  printf "  %-20s %s\n" "Tokens in:"    "$(human_tokens "$inp")"
+  printf "  %-20s %s\n" "Tokens out:"   "$(human_tokens "$out")"
+  printf "  %-20s %s  (${pct}%%)\n" "Tokens saved:" "$(human_tokens "$saved")"
+  echo -e "  Efficiency:  ${CYAN}$(bar "$pct")${NC}  ${BOLD}${pct}%${NC}"
+  echo ""
+}
+
 cmd_help() {
   cat << EOF
 
@@ -277,13 +514,17 @@ ${BOLD}USAGE${NC}
   token-diet [command]
 
 ${BOLD}COMMANDS${NC}
-  gain         Show token savings dashboard across RTK + tilth + Serena  (default)
-  health       Quick health check: tools responding + MCP hosts registered
-  dashboard    Open live browser dashboard  [--port N]
-  version      Show installed versions of all three tools
-  verify       Re-run installation verification
-  uninstall    Remove all token-diet components  [--dry-run] [--force]
-  --help       Show this help
+  gain              Show token savings dashboard across RTK + tilth + Serena  (default)
+  health            Quick health check: tools responding + MCP hosts registered
+  breakdown         Top commands by tokens saved  [--limit N]
+  explain <cmd>     Token cost breakdown for a specific command
+  budget <init|status>  Per-project token budget with warn/hard thresholds
+  loops             Detect agent loop patterns (commands run 3+ times)
+  dashboard         Open live browser dashboard  [--port N]
+  version           Show installed versions of all three tools
+  verify            Re-run installation verification
+  uninstall         Remove all token-diet components  [--dry-run] [--force]
+  --help            Show this help
 
 ${BOLD}TOOLS${NC}
   RTK    Command output compression       60-90% savings (tracked)
@@ -301,6 +542,10 @@ EOF
 case "${1:-gain}" in
   gain)              cmd_gain ;;
   health)            cmd_health ;;
+  breakdown)         shift; cmd_breakdown "$@" ;;
+  explain)           shift; cmd_explain "$@" ;;
+  budget)            shift; cmd_budget "$@" ;;
+  loops)             cmd_loops ;;
   dashboard)         shift; cmd_dashboard "$@" ;;
   version|versions)  cmd_version ;;
   verify)            cmd_verify ;;

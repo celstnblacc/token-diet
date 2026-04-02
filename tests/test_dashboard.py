@@ -113,3 +113,85 @@ def test_registered_hosts_deduplicates(dashboard_mod, tmp_home):
 
     hosts = dashboard_mod._registered_hosts("tilth")
     assert hosts.count("claude-code") == 1
+
+
+# ---------------------------------------------------------------------------
+# Cycle 8.1-8.2 — breakdown_stats in collect()
+# ---------------------------------------------------------------------------
+
+def test_collect_includes_breakdown_key(dashboard_mod):
+    """collect() includes a 'breakdown' key alongside rtk/tilth/serena."""
+    with patch.object(dashboard_mod, "run", return_value=None):
+        result = dashboard_mod.collect()
+    assert "breakdown" in result
+
+
+def test_breakdown_stats_returns_top_commands(dashboard_mod, tmp_home):
+    """breakdown_stats() returns top_commands list from RTK history."""
+    fake_history = json.dumps({
+        "summary": {"total_commands": 10, "total_input": 65000,
+                    "total_saved": 50000, "avg_savings_pct": 76.9, "total_time_ms": 300},
+        "commands": [
+            {"cmd": "cargo test", "count": 5, "total_input": 50000,
+             "total_saved": 40000, "avg_pct": 80.0},
+            {"cmd": "git log", "count": 3, "total_input": 12000,
+             "total_saved": 9000, "avg_pct": 75.0},
+        ]
+    })
+
+    def fake_run(cmd, **kw):
+        if "--history" in cmd:
+            return fake_history
+        return None
+
+    with patch.object(dashboard_mod, "run", side_effect=fake_run):
+        result = dashboard_mod.breakdown_stats()
+
+    assert result is not None
+    assert "top_commands" in result
+    assert len(result["top_commands"]) == 2
+    assert result["top_commands"][0]["cmd"] == "cargo test"
+
+
+def test_breakdown_stats_returns_none_when_rtk_missing(dashboard_mod, tmp_home):
+    """breakdown_stats() returns None when RTK is not installed."""
+    with patch.object(dashboard_mod, "run", return_value=None):
+        assert dashboard_mod.breakdown_stats() is None
+
+
+# ---------------------------------------------------------------------------
+# Cycle 11.1-11.2 — budget_stats in collect()
+# ---------------------------------------------------------------------------
+
+def test_collect_includes_budget_key(dashboard_mod, tmp_home):
+    """collect() includes a 'budget' key."""
+    with patch.object(dashboard_mod, "run", return_value=None):
+        result = dashboard_mod.collect()
+    assert "budget" in result
+
+
+def test_budget_stats_returns_thresholds_when_file_exists(dashboard_mod, tmp_home):
+    """budget_stats() parses warn/hard from .token-budget and adds used/remaining."""
+    budget_file = tmp_home / ".token-budget"
+    budget_file.write_text(json.dumps({"warn": 50000, "hard": 100000}))
+
+    fake_summary = json.dumps({
+        "summary": {"total_commands": 5, "total_input": 30000,
+                    "total_saved": 20000, "avg_savings_pct": 66.0, "total_time_ms": 100},
+        "daily": []
+    })
+    with patch.object(dashboard_mod, "run", return_value=fake_summary):
+        result = dashboard_mod.budget_stats()
+
+    assert result is not None
+    assert result["warn"] == 50000
+    assert result["hard"] == 100000
+    assert result["used"] == 30000
+    assert result["remaining"] == 70000
+
+
+def test_budget_stats_returns_none_when_no_budget_file(dashboard_mod, tmp_home):
+    """budget_stats() returns None when no .token-budget file exists."""
+    with patch.object(dashboard_mod, "run", return_value=None):
+        result = dashboard_mod.budget_stats()
+    assert result is None
