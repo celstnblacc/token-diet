@@ -505,6 +505,159 @@ PY
   echo ""
 }
 
+cmd_strip() {
+  local STATS=false
+  local file=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --stats) STATS=true; shift ;;
+      -*)      echo "Unknown option: $1"; echo "Usage: token-diet strip [--stats] <file>"; exit 1 ;;
+      *)       file="$1"; shift ;;
+    esac
+  done
+
+  if [[ -z "$file" ]]; then
+    echo "Usage: token-diet strip [--stats] <file>"
+    exit 1
+  fi
+
+  if [[ ! -f "$file" ]]; then
+    echo "File not found: $file"
+    exit 1
+  fi
+
+  local ext="${file##*.}"
+  # Detect comment style from extension or shebang
+  local comment_char="#"
+  case "$ext" in
+    js|ts|jsx|tsx|java|c|cpp|h|cs|go|swift|kt)
+      # Strip // single-line comments
+      local stripped
+      stripped=$(python3 - "$file" << 'PY'
+import sys, re
+with open(sys.argv[1]) as f:
+    content = f.read()
+# Remove // line comments (not inside strings — best-effort)
+lines = []
+for line in content.splitlines():
+    # Remove // comment (simple: not string-aware)
+    cleaned = re.sub(r'\s*//.*$', '', line)
+    lines.append(cleaned)
+print('\n'.join(lines))
+PY
+)
+      ;;
+    *)
+      # Default: strip # comments (Python, bash, ruby, etc.)
+      local stripped
+      stripped=$(python3 - "$file" << 'PY'
+import sys, re
+with open(sys.argv[1]) as f:
+    lines = f.readlines()
+out = []
+for line in lines:
+    # Remove full-line comments
+    stripped = re.sub(r'^\s*#.*\n?', '', line)
+    # Remove inline comments (not inside strings — best-effort)
+    stripped = re.sub(r'\s+#[^!\n].*$', '', stripped.rstrip('\n'))
+    out.append(stripped)
+# Filter out lines that became empty due to comment removal
+# but preserve blank lines that were originally blank
+result = []
+for orig, s in zip(lines, out):
+    orig_stripped = orig.strip()
+    if orig_stripped.startswith('#'):
+        continue  # was a comment line — skip
+    result.append(s)
+print('\n'.join(result))
+PY
+)
+      ;;
+  esac
+
+  if [[ "$STATS" == true ]]; then
+    local orig_lines stripped_lines
+    orig_lines=$(wc -l < "$file")
+    stripped_lines=$(echo "$stripped" | wc -l)
+    local saved=$(( orig_lines - stripped_lines ))
+    local pct=0
+    if [[ $orig_lines -gt 0 ]]; then
+      pct=$(python3 -c "print(round($saved * 100 / $orig_lines, 1))")
+    fi
+    echo "$stripped"
+    echo ""
+    echo "Lines: $orig_lines → $stripped_lines  (saved $saved lines, ${pct}% reduction)"
+  else
+    echo "$stripped"
+  fi
+}
+
+cmd_diff_reads() {
+  local file="${1:-}"
+
+  if [[ -z "$file" ]]; then
+    echo "Usage: token-diet diff-reads <file>"
+    exit 1
+  fi
+
+  if [[ ! -f "$file" ]]; then
+    echo "File not found: $file"
+    exit 1
+  fi
+
+  # Find repo root
+  local repo_root
+  repo_root=$(git -C "$(dirname "$file")" rev-parse --show-toplevel 2>/dev/null) || {
+    echo "Not a git repository: $file"
+    exit 1
+  }
+
+  # Get changed line ranges from git diff (unstaged + staged)
+  local rel_path
+  rel_path=$(realpath --relative-to="$repo_root" "$file" 2>/dev/null || python3 -c "
+import os, sys
+print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$file" "$repo_root")
+
+  # Combine staged and unstaged diffs
+  local ranges
+  ranges=$(git -C "$repo_root" diff HEAD -- "$rel_path" 2>/dev/null; \
+           git -C "$repo_root" diff --cached -- "$rel_path" 2>/dev/null)
+
+  if [[ -z "$ranges" ]]; then
+    # No uncommitted changes — check last commit
+    ranges=$(git -C "$repo_root" diff HEAD~1 HEAD -- "$rel_path" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$ranges" ]]; then
+    echo "No recent changes detected for: $rel_path"
+    echo "Suggest reading the full file."
+    exit 0
+  fi
+
+  # Parse @@ -a,b +c,d @@ hunks to extract new-file line ranges
+  echo "Changed regions in $rel_path:"
+  echo ""
+  echo "$ranges" | python3 - << 'PY'
+import sys, re
+content = sys.stdin.read()
+hunks = re.findall(r'@@ [^@]+ \+(\d+)(?:,(\d+))? @@', content)
+if not hunks:
+    print("  (no line range info available)")
+else:
+    for start_s, count_s in hunks:
+        start = int(start_s)
+        count = int(count_s) if count_s else 1
+        end = start + count - 1
+        if count == 0:
+            print(f"  (deletion at line {start})")
+        elif start == end:
+            print(f"  line {start}")
+        else:
+            print(f"  lines {start}-{end}  (Read offset={start-1} limit={count})")
+PY
+}
+
 cmd_help() {
   cat << EOF
 
@@ -520,6 +673,8 @@ ${BOLD}COMMANDS${NC}
   explain <cmd>     Token cost breakdown for a specific command
   budget <init|status>  Per-project token budget with warn/hard thresholds
   loops             Detect agent loop patterns (commands run 3+ times)
+  strip [--stats] <file>  Strip comments from source file to reduce tokens
+  diff-reads <file> Suggest line ranges to read based on recent git diff
   dashboard         Open live browser dashboard  [--port N]
   version           Show installed versions of all three tools
   verify            Re-run installation verification
@@ -549,6 +704,8 @@ case "${1:-gain}" in
   dashboard)         shift; cmd_dashboard "$@" ;;
   version|versions)  cmd_version ;;
   verify)            cmd_verify ;;
+  strip)             shift; cmd_strip "$@" ;;
+  diff-reads)        shift; cmd_diff_reads "$@" ;;
   uninstall)         shift; cmd_uninstall "$@" ;;
   --help|-h|help)    cmd_help ;;
   *)  echo "Unknown command: $1"; cmd_help; exit 1 ;;

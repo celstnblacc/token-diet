@@ -130,3 +130,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 * `scripts/token-diet-dashboard` — `budget_stats()` added; `collect()` now includes `budget` key in `/api/stats`
 * `tests/test_helper.bash` — `mock_cmd_no_loops()` helper for clean-history loop detection tests
 * 9 new bats tests (cycles 9.1-9.4, 10.1-10.3 + budget init/status) + 3 new pytest tests (cycles 11.1-11.2)
+
+## [Unreleased] — Iteration 4
+
+### Added
+
+* `token-diet strip <file>` — strips single-line comments from Python, bash, and JS/TS source files to reduce prompt token count; `--stats` flag prints line/reduction summary
+* `token-diet diff-reads <file>` — parses `git diff HEAD` and staged diffs for a file and prints changed line ranges with `Read` offset/limit hints for targeted reading
+* 10 new bats tests (cycles 12.1-12.4, 13.1-13.3)

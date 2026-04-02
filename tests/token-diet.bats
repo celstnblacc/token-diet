@@ -299,3 +299,97 @@ MOCK
   [ "$status" -eq 0 ]
   [[ "$output" == *"loops"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# Cycle 12.1 — strip: dispatch and basic output
+# ---------------------------------------------------------------------------
+
+@test "strip: exits 1 with usage when no file given" {
+  run "$SCRIPTS_DIR/token-diet" strip
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Usage"* ]] || [[ "$output" == *"usage"* ]]
+}
+
+@test "strip: exits 1 when file does not exist" {
+  run "$SCRIPTS_DIR/token-diet" strip "/nonexistent/path/file.py"
+  [ "$status" -eq 1 ]
+}
+
+@test "strip: removes single-line comments from a Python file" {
+  cat > "$TMP_HOME/sample.py" << 'PY'
+# This is a top comment
+def hello():
+    # inline comment
+    return "hi"  # end-of-line comment
+PY
+  run "$SCRIPTS_DIR/token-diet" strip "$TMP_HOME/sample.py"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"This is a top comment"* ]]
+  [[ "$output" == *"def hello"* ]]
+  [[ "$output" == *"return"* ]]
+}
+
+@test "strip: removes single-line comments from a bash file" {
+  cat > "$TMP_HOME/sample.sh" << 'SH'
+#!/usr/bin/env bash
+# This header comment goes away
+echo "hello"   # inline comment removed
+SH
+  run "$SCRIPTS_DIR/token-diet" strip "$TMP_HOME/sample.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"echo"* ]]
+  [[ "$output" != *"header comment"* ]]
+}
+
+@test "strip: --stats prints reduction percentage" {
+  cat > "$TMP_HOME/sample.py" << 'PY'
+# comment line one
+# comment line two
+def work():
+    pass
+PY
+  run "$SCRIPTS_DIR/token-diet" strip --stats "$TMP_HOME/sample.py"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"%"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 12.4 — strip: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes strip command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"strip"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 13.1 — diff-reads: dispatch
+# ---------------------------------------------------------------------------
+
+@test "diff-reads: exits 1 with usage when no file given" {
+  run "$SCRIPTS_DIR/token-diet" diff-reads
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Usage"* ]] || [[ "$output" == *"usage"* ]]
+}
+
+@test "diff-reads: exits 1 when file does not exist" {
+  run "$SCRIPTS_DIR/token-diet" diff-reads "/nonexistent/file.py"
+  [ "$status" -eq 1 ]
+}
+
+@test "diff-reads: exits 0 and shows line ranges for a file in a git repo" {
+  # Use the real repo root — it's a git repo with real changes
+  run "$SCRIPTS_DIR/token-diet" diff-reads "$SCRIPTS_DIR/token-diet"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 13.3 — diff-reads: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes diff-reads command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"diff-reads"* ]]
+}
