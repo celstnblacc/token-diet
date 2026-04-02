@@ -505,6 +505,128 @@ PY
   echo ""
 }
 
+cmd_route() {
+  local task="${1:-}"
+  if [[ -z "$task" ]]; then
+    echo "Usage: token-diet route <task description>"
+    exit 1
+  fi
+
+  local lower
+  lower=$(echo "$task" | tr '[:upper:]' '[:lower:]')
+
+  if [[ "$lower" =~ (rename|refactor|reference|diagnostic|navigate|symbol|lsp|find.*def|go.to) ]]; then
+    echo -e "${BOLD}→ Serena${NC} (LSP navigation)"
+    echo "  Best for: rename, refactor, find references, diagnostics, symbol search"
+    echo "  Command:  use serena MCP tools (rename_symbol, find_referencing_symbols)"
+  elif [[ "$lower" =~ (run|build|test|install|npm|cargo|make|git|docker|pip|exec|deploy) ]]; then
+    echo -e "${BOLD}→ RTK${NC} (output compression)"
+    echo "  Best for: CLI commands whose output would flood context"
+    echo "  Command:  rtk <your-command>  (or let the Claude Code hook wrap it)"
+  elif [[ "$lower" =~ (read|search|find|list|outline|grep|cat|show|view|open|import|deps) ]]; then
+    echo -e "${BOLD}→ tilth${NC} (AST-aware reading)"
+    echo "  Best for: reading files, searching symbols, exploring structure"
+    echo "  Command:  use tilth MCP tools (tilth_read, tilth_search, tilth_files)"
+  else
+    echo -e "${BOLD}No clear match${NC} — all three tools may apply:"
+    echo ""
+    echo "  tilth   — reading/searching code (AST-aware, fast)"
+    echo "  Serena  — renaming/navigating symbols (LSP-powered)"
+    echo "  RTK     — running CLI commands (output compression)"
+  fi
+}
+
+cmd_leaks() {
+  if ! check_cmd rtk; then
+    miss "RTK not installed — leaks detection requires RTK history"
+    exit 1
+  fi
+
+  local raw
+  raw=$(rtk gain --history 2>/dev/null) || { miss "RTK history unavailable"; exit 1; }
+
+  local leaks
+  leaks=$(python3 - "$raw" << 'PY'
+import sys, json, re
+data = json.loads(sys.argv[1])
+cmds = data.get("commands", [])
+FILE_READ = re.compile(r'\b(?:cat|head|tail|tilth\s+read|tilth_read)\s+(\S+\.\w+)')
+found = []
+for c in cmds:
+    m = FILE_READ.search(c.get("cmd", ""))
+    if m and c.get("count", 0) >= 2:
+        found.append((m.group(1), c["count"], c.get("total_input", 0)))
+found.sort(key=lambda x: x[1], reverse=True)
+for f, cnt, tok in found:
+    print(f"{f}\t{cnt}\t{tok}")
+PY
+)
+
+  if [[ -z "$leaks" ]]; then
+    ok "No leaks detected — no files read multiple times"
+    exit 0
+  fi
+
+  echo -e "${BOLD}Context leaks — files read multiple times:${NC}"
+  echo ""
+  while IFS=$'\t' read -r filepath count total_input; do
+    warn "$filepath  (${count}×, ~$(human_tokens "$total_input") tokens)"
+  done <<< "$leaks"
+  echo ""
+  echo "  Tip: use tilth_read with offset/limit to read only changed sections"
+  exit 1
+}
+
+cmd_test_first() {
+  local file="${1:-}"
+  if [[ -z "$file" ]]; then
+    echo "Usage: token-diet test-first <file>"
+    exit 1
+  fi
+
+  local basename="${file##*/}"
+  local name="${basename%.*}"
+  local ext="${basename##*.}"
+  local dir="${file%/*}"
+  [[ "$dir" == "$file" ]] && dir="."
+
+  echo "Test candidates for ${BOLD}${file}${NC}:"
+  echo ""
+
+  case "$ext" in
+    py)
+      echo "  tests/test_${name}.py"
+      echo "  test_${name}.py"
+      echo "  ${dir}/test_${name}.py"
+      ;;
+    rs)
+      echo "  tests/${name}_test.rs"
+      echo "  tests/test_${name}.rs"
+      echo "  ${dir}/${name}_test.rs  (inline #[cfg(test)] module)"
+      ;;
+    ts|tsx)
+      echo "  ${dir}/${name}.test.ts"
+      echo "  ${dir}/${name}.spec.ts"
+      echo "  tests/${name}.test.ts"
+      ;;
+    js|jsx)
+      echo "  ${dir}/${name}.test.js"
+      echo "  ${dir}/${name}.spec.js"
+      echo "  tests/${name}.test.js"
+      ;;
+    go)
+      echo "  ${dir}/${name}_test.go"
+      ;;
+    *)
+      echo "  tests/test_${name}.${ext}"
+      echo "  ${dir}/test_${name}.${ext}"
+      ;;
+  esac
+
+  echo ""
+  echo "  Tip: read the test file first to understand expected behavior before the implementation"
+}
+
 cmd_strip() {
   local STATS=false
   local file=""
@@ -673,6 +795,9 @@ ${BOLD}COMMANDS${NC}
   explain <cmd>     Token cost breakdown for a specific command
   budget <init|status>  Per-project token budget with warn/hard thresholds
   loops             Detect agent loop patterns (commands run 3+ times)
+  route <task>      Suggest which tool (tilth/Serena/RTK) best fits the task
+  leaks             Detect files read multiple times in RTK history
+  test-first <file> Suggest test file counterpart for an implementation file
   strip [--stats] <file>  Strip comments from source file to reduce tokens
   diff-reads <file> Suggest line ranges to read based on recent git diff
   dashboard         Open live browser dashboard  [--port N]
@@ -704,6 +829,9 @@ case "${1:-gain}" in
   dashboard)         shift; cmd_dashboard "$@" ;;
   version|versions)  cmd_version ;;
   verify)            cmd_verify ;;
+  route)             shift; cmd_route "$@" ;;
+  leaks)             cmd_leaks ;;
+  test-first)        shift; cmd_test_first "$@" ;;
   strip)             shift; cmd_strip "$@" ;;
   diff-reads)        shift; cmd_diff_reads "$@" ;;
   uninstall)         shift; cmd_uninstall "$@" ;;

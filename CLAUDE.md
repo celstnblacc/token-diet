@@ -15,7 +15,7 @@ token-diet/
 │   ├── Install.ps1           # Windows installer (-Verbose for full output)
 │   ├── uninstall.sh          # macOS/Linux uninstaller (--dry-run, --force, --include-data)
 │   ├── Uninstall.ps1         # Windows uninstaller (-DryRun, -Force, -IncludeData)
-│   ├── token-diet            # CLI entry point (gain, health, breakdown, explain, budget, loops, strip, diff-reads, uninstall, version, verify, dashboard)
+│   ├── token-diet            # CLI entry point (gain, health, breakdown, explain, budget, loops, strip, diff-reads, route, leaks, test-first, uninstall, version, verify, dashboard)
 │   ├── token-diet-dashboard  # stdlib-only Python browser dashboard
 │   ├── playbook.yml          # Ansible playbook
 │   └── build.sh              # Build from forks (no internet)

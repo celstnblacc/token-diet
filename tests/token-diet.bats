@@ -393,3 +393,133 @@ PY
   [ "$status" -eq 0 ]
   [[ "$output" == *"diff-reads"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# Cycle 14.1 — route: no task given
+# ---------------------------------------------------------------------------
+
+@test "route: exits 1 with usage when no task given" {
+  run "$SCRIPTS_DIR/token-diet" route
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Usage"* ]] || [[ "$output" == *"usage"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 14.2 — route: tilth for read/search tasks
+# ---------------------------------------------------------------------------
+
+@test "route: suggests tilth for read/search tasks" {
+  run "$SCRIPTS_DIR/token-diet" route "read src/main.rs"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tilth"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 14.3 — route: Serena for rename/refactor, RTK for run/build/test
+# ---------------------------------------------------------------------------
+
+@test "route: suggests Serena for rename/refactor tasks" {
+  run "$SCRIPTS_DIR/token-diet" route "rename function foo to bar"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Serena"* ]] || [[ "$output" == *"serena"* ]]
+}
+
+@test "route: suggests RTK for run/build/test tasks" {
+  run "$SCRIPTS_DIR/token-diet" route "run cargo test"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"RTK"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 14.4 — route: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes route command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"route"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 15.1 — leaks: no repeated file reads
+# ---------------------------------------------------------------------------
+
+@test "leaks: exits 0 with clean message when no repeated file reads" {
+  mock_cmd_no_loops
+  run "$SCRIPTS_DIR/token-diet" leaks
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No leaks"* ]] || [[ "$output" == *"no leaks"* ]] || [[ "$output" == *"clean"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 15.2 — leaks: detects files read 2+ times
+# ---------------------------------------------------------------------------
+
+@test "leaks: exits 1 and flags files read 2+ times" {
+  cat > "$TMP_BIN/rtk" << 'MOCK'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo "rtk 0.34.3-mock"; exit 0 ;;
+  gain)
+    case "$2" in
+      --history) echo '{"summary":{},"commands":[{"cmd":"cat src/auth.rs","count":3,"total_input":9000,"total_saved":7000,"avg_pct":77.0},{"cmd":"cat src/main.rs","count":2,"total_input":6000,"total_saved":4500,"avg_pct":75.0},{"cmd":"git status","count":1,"total_input":500,"total_saved":400,"avg_pct":80.0}]}'; exit 0 ;;
+      --format)  echo '{"summary":{"total_commands":6,"total_input":15500,"total_saved":11900,"avg_savings_pct":76.8,"total_time_ms":100},"daily":[]}'; exit 0 ;;
+      *)         echo "Usage: rtk gain [OPTIONS]"; exit 0 ;;
+    esac ;;
+  *)  exit 0 ;;
+esac
+MOCK
+  chmod +x "$TMP_BIN/rtk"
+
+  run "$SCRIPTS_DIR/token-diet" leaks
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"auth.rs"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 15.3 — leaks: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes leaks command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"leaks"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 16.1 — test-first: dispatch
+# ---------------------------------------------------------------------------
+
+@test "test-first: exits 1 with usage when no file given" {
+  run "$SCRIPTS_DIR/token-diet" test-first
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Usage"* ]] || [[ "$output" == *"usage"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 16.2 — test-first: suggests test paths
+# ---------------------------------------------------------------------------
+
+@test "test-first: suggests test file path for a Python source file" {
+  run "$SCRIPTS_DIR/token-diet" test-first "src/auth.py"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"auth"* ]]
+  [[ "$output" == *"test"* ]]
+}
+
+@test "test-first: suggests test file path for a Rust source file" {
+  run "$SCRIPTS_DIR/token-diet" test-first "src/auth.rs"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"auth"* ]]
+  [[ "$output" == *"test"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Cycle 16.3 — test-first: listed in --help
+# ---------------------------------------------------------------------------
+
+@test "help text includes test-first command" {
+  run "$SCRIPTS_DIR/token-diet" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"test-first"* ]]
+}

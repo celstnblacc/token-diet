@@ -84,6 +84,9 @@ token-diet budget status    # usage vs budget (exits 0=OK, 2=WARN, 3=HARD STOP)
 token-diet loops            # detect agent loop patterns (commands run 3+ times)
 token-diet strip <file>     # strip comments from source file to reduce prompt tokens  [--stats]
 token-diet diff-reads <file> # suggest line ranges to read based on recent git diff
+token-diet route <task>     # suggest which tool (tilth/Serena/RTK) best fits the task
+token-diet leaks            # detect files read multiple times (context waste)
+token-diet test-first <file> # suggest test file counterpart before reading implementation
 token-diet dashboard        # live browser dashboard at http://127.0.0.1:7384
 token-diet dashboard --port 8080
 token-diet version          # show installed versions
