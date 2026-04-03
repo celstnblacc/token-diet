@@ -72,6 +72,18 @@ load test_helper
   [[ "$output" == *"claude-code"* ]]
 }
 
+@test "health: exits 1 when Codex tilth MCP path is stale" {
+  mock_cmd_with_gain
+  mock_cmd tilth
+  mock_cmd uvx
+  mock_mcp_config codex tilth "/missing/tilth"
+
+  run "$SCRIPTS_DIR/token-diet" health
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Codex tilth MCP command missing"* ]]
+  [[ "$output" == *"/missing/tilth"* ]]
+}
+
 # ---------------------------------------------------------------------------
 # Cycle 2.4 — health: listed in --help
 # ---------------------------------------------------------------------------

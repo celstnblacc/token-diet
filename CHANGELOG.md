@@ -220,3 +220,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 * `tests/test_dashboard.py` — mock `Path.cwd()` in budget threshold test to prevent stray `.token-budget` from leaking into test
+
+## [1.2.8] — 2026-04-02
+
+### Changed
+* `.gitignore` — add `.token-budget` entry
+
+## [1.2.9] — 2026-04-03
+
+### Added
+* `scripts/token-diet` — `health` now detects stale Codex tilth MCP registrations: parses `~/.codex/config.toml` and warns if the configured command path no longer exists
+* `scripts/install.sh` — `--verify` likewise warns on stale Codex tilth MCP command path
+* `tests/token-diet.bats` — 2 new tests covering stale Codex path detection in `health`
+* `tests/install.bats` — 1 new test covering `--verify` stale Codex path warning
+* `tests/test_tilth_benchmark_paths.py` — regression tests: tilth benchmark resolves binary from `TILTH_BIN`/PATH, uses repo-local results dir
+
+### Fixed
+* `forks/tilth/benchmark/` — hardcoded `/Users/flysikring/.cargo/bin/tilth` and workspace results path replaced with env-var/PATH resolution and repo-local fallback
