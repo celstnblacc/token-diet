@@ -578,3 +578,51 @@ MOCK
   [ "$status" -eq 0 ]
   [[ "$output" == *"test-first"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# Regression: single-quoted TOML command value is parsed correctly
+# ---------------------------------------------------------------------------
+
+@test "health: single-quoted TOML command is detected as registered" {
+  mock_cmd_with_gain
+  mock_cmd tilth
+  mock_cmd uv
+  mock_cmd codex
+  # Write a Codex config using single-quoted TOML (valid TOML literal string)
+  mkdir -p "$TMP_HOME/.codex"
+  printf '\n[mcp_servers.tilth]\ncommand = '"'"'tilth'"'"'\n' >> "$TMP_HOME/.codex/config.toml"
+
+  run "$SCRIPTS_DIR/token-diet" health
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"codex"* ]]
+}
+
+@test "health: stale single-quoted TOML path is flagged" {
+  mock_cmd_with_gain
+  mock_cmd tilth
+  mock_cmd uv
+  mock_cmd codex
+  mkdir -p "$TMP_HOME/.codex"
+  printf '\n[mcp_servers.tilth]\ncommand = '"'"'/missing/tilth'"'"'\n' >> "$TMP_HOME/.codex/config.toml"
+
+  run "$SCRIPTS_DIR/token-diet" health
+  [[ "$output" == *"MCP command missing: /missing/tilth"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# UX fix: verify inline fallback exits 1 when issues found
+# ---------------------------------------------------------------------------
+
+@test "verify (inline fallback): exits 1 when tools are missing" {
+  # Copy token-diet to a dir without install.sh to force inline fallback
+  local tmp_bin
+  tmp_bin="$(mktemp -d)"
+  cp "$SCRIPTS_DIR/token-diet" "$tmp_bin/token-diet"
+  chmod +x "$tmp_bin/token-diet"
+  # Use a clean PATH (TMP_BIN + system only) so real user bin tools aren't found
+  local clean_path="$TMP_BIN:/usr/bin:/bin"
+
+  run env HOME="$TMP_HOME" PATH="$clean_path" "$tmp_bin/token-diet" verify
+  rm -rf "$tmp_bin"
+  [ "$status" -eq 1 ]
+}

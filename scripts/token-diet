@@ -72,7 +72,7 @@ text = cfg_path.read_text()
 block = re.search(r'(?ms)^\[mcp_servers\.%s\]\s*(.*?)(?=^\[|\Z)' % re.escape(tool), text)
 if not block:
     raise SystemExit(1)
-command = re.search(r'(?m)^command\s*=\s*"([^"]+)"\s*$', block.group(1))
+command = re.search(r'(?m)^command\s*=\s*["\']([^"\']+)["\']\s*$', block.group(1))
 if not command:
     raise SystemExit(1)
 print(command.group(1))
@@ -281,10 +281,12 @@ cmd_verify() {
   echo ""
   if $all_ok; then
     printf "  ${GREEN}✓${NC} All tools installed. Token diet active.\n"
+    echo ""
   else
     printf "  ${YELLOW}⚠${NC}  Some tools or MCP registrations need attention.\n"
+    echo ""
+    return 1
   fi
-  echo ""
 }
 
 cmd_dashboard() {

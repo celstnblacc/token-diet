@@ -107,7 +107,7 @@ text = cfg_path.read_text()
 block = re.search(r'(?ms)^\[mcp_servers\.%s\]\s*(.*?)(?=^\[|\Z)' % re.escape(tool), text)
 if not block:
     raise SystemExit(1)
-command = re.search(r'(?m)^command\s*=\s*"([^"]+)"\s*$', block.group(1))
+command = re.search(r'(?m)^command\s*=\s*["\']([^"\']+)["\']\s*$', block.group(1))
 if not command:
     raise SystemExit(1)
 print(command.group(1))
