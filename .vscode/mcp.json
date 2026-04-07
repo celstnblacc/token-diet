@@ -18,7 +18,7 @@
       "args": [
         "--mcp"
       ],
-      "command": "tilth"
+      "command": "C:\\Users\\roym\\.cargo\\bin\\tilth.exe"
     }
   }
 }
