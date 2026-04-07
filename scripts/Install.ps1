@@ -102,6 +102,26 @@ function Show-Output {
 
 function Test-Cmd { param([string]$Name) $null -ne (Get-Command $Name -ErrorAction SilentlyContinue) }
 
+function Repair-SubmoduleWorktree {
+    param([string]$RelativePath)
+
+    $fullPath = Join-Path $script:ProjectRoot $RelativePath
+    if (-not (Test-Path $fullPath)) { return }
+
+    $entries = @(Get-ChildItem -Force -LiteralPath $fullPath -ErrorAction SilentlyContinue)
+    $nonGitEntries = @($entries | Where-Object { $_.Name -ne '.git' })
+    if ($nonGitEntries.Count -gt 0) { return }
+
+    Write-Warn "$RelativePath appears empty; repairing submodule worktree"
+    if ($DryRun) {
+        Write-DryRun "git -C $script:ProjectRoot submodule update --init --force -- $RelativePath"
+        return
+    }
+
+    git -C $script:ProjectRoot submodule update --init --force -- $RelativePath 2>&1 |
+        Where-Object { $_ -match 'Submodule path|checked out|error' }
+}
+
 # Extract the configured command for [mcp_servers.<tool>] from Codex TOML.
 function Get-CodexMcpCommand([string]$Tool) {
     $codexCfg = Join-Path $env:USERPROFILE '.codex\config.toml'
@@ -166,6 +186,9 @@ function Ensure-Git {
     if (Test-Path $gitmodules) {
         Write-Info "Initializing submodules (forks\rtk, forks\tilth, forks\serena)..."
         git -C $script:ProjectRoot submodule update --init --recursive 2>&1 | Where-Object { $_ -match "Cloning|already|error" }
+        Repair-SubmoduleWorktree "forks\rtk"
+        Repair-SubmoduleWorktree "forks\tilth"
+        Repair-SubmoduleWorktree "forks\serena"
         Write-Ok "Submodules ready"
     }
 }
