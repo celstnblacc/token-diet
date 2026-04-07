@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,10 @@ def _run_ps1(args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.skipif(shutil.which("pwsh") is None, reason="pwsh not found")
+@pytest.mark.skipif(
+    shutil.which("pwsh") is None or sys.platform != "win32",
+    reason="PS1 smoke tests require Windows + pwsh",
+)
 @pytest.mark.parametrize(
     "args,expected_codes,needle",
     [
