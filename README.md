@@ -86,6 +86,7 @@ token-diet strip <file>     # strip comments from source file to reduce prompt t
 token-diet diff-reads <file> # suggest line ranges to read based on recent git diff
 token-diet route <task>     # suggest which tool (tilth/Serena/RTK) best fits the task
 token-diet leaks            # detect files read multiple times (context waste)
+token-diet serena-status    # show Serena runtime details (mode/image/container/uvx)
 token-diet serena-gc        # detect and kill orphaned Serena/LSP processes  [--force]
 token-diet test-first <file> # suggest test file counterpart before reading implementation
 token-diet dashboard        # live browser dashboard at http://127.0.0.1:7384
@@ -108,6 +109,11 @@ On Windows, use the PowerShell equivalent (`scripts/token-diet.ps1`), which supp
 ```
 
 The browser dashboard auto-refreshes every 30 s and shows cumulative RTK savings, a 14-day savings bar chart, weekly token projection, budget usage vs warn/hard thresholds, top-commands breakdown, loop and leak alerts, tilth/Serena status, and registered MCP hosts with missing-host hints.
+
+Serena status distinguishes runtime states:
+- `uvx` = Serena can be launched via uvx (no long-running Docker container expected)
+- `docker-image` = Serena image exists locally but no container is currently running
+- `docker-running` = a Serena container from `token-diet/serena:latest` is currently running
 
 ## Enterprise / Air-Gapped Deployment
 

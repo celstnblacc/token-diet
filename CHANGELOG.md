@@ -29,6 +29,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Changed
 - Added `__pycache__/` and `*.pyc` to `.gitignore`
 
+### Fixed
+- `scripts/token-diet` — Serena health/version/gain checks now validate an actually runnable Serena runtime (uvx command works or Docker image exists) instead of treating plain `uvx` presence as healthy
+- `scripts/token-diet-dashboard` — Serena mode now distinguishes `uvx`, `docker-image` (built but not running), and `docker-running`, reducing false "active" interpretation when no Serena container is started
+- `README.md` — documented Serena runtime status meanings shown by the dashboard
+
+### Added
+- `token-diet serena-status` (bash + PowerShell) — explicit Serena runtime diagnostics: mode, Docker image/container state, uvx availability, and uvx Serena runnable status
+
 ## [Unreleased]
 
 ## [Unreleased] — 2026-04-02

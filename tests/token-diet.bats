@@ -56,6 +56,25 @@ load test_helper
   [[ "$output" == *"All tools healthy"* ]]
 }
 
+@test "serena-status: reports uvx runtime when uvx serena is runnable" {
+  mock_cmd uvx
+  run "$SCRIPTS_DIR/token-diet" serena-status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Runtime mode:"* ]]
+  [[ "$output" == *"uvx"* ]]
+}
+
+@test "serena-status: reports none when neither uvx nor docker are usable" {
+  for tool in uvx docker; do
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP_BIN/$tool"
+    chmod +x "$TMP_BIN/$tool"
+  done
+  run "$SCRIPTS_DIR/token-diet" serena-status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Runtime mode:"* ]]
+  [[ "$output" == *"none"* ]]
+}
+
 # ---------------------------------------------------------------------------
 # Cycle 2.3 — health: MCP host registration
 # ---------------------------------------------------------------------------

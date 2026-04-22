@@ -235,6 +235,42 @@ function Invoke-Health {
     exit 1
 }
 
+function Get-SerenaRuntimeMode {
+    $dockerImage = (Test-Tool 'docker') -and (docker image inspect token-diet/serena:latest 2>$null)
+    if ($dockerImage) { return 'docker' }
+    if (Test-Tool 'uvx') {
+        & uvx serena --version 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) { return 'uvx' }
+    }
+    return 'none'
+}
+
+function Invoke-SerenaStatus {
+    Write-Output "`ntoken-diet serena-status`n"
+
+    $mode = Get-SerenaRuntimeMode
+    $dockerImage = (Test-Tool 'docker') -and (docker image inspect token-diet/serena:latest 2>$null)
+    $dockerRunning = $false
+    if ($dockerImage -and (Test-Tool 'docker')) {
+        $running = docker ps --filter ancestor=token-diet/serena:latest --format '{{.ID}}' 2>$null
+        $dockerRunning = -not [string]::IsNullOrWhiteSpace($running)
+    }
+
+    $uvxAvailable = Test-Tool 'uvx'
+    $uvxSerena = $false
+    if ($uvxAvailable) {
+        & uvx serena --version 2>$null | Out-Null
+        $uvxSerena = ($LASTEXITCODE -eq 0)
+    }
+
+    Write-Output ('  {0,-24} {1}' -f 'Runtime mode:', $mode)
+    Write-Output ('  {0,-24} {1}' -f 'Docker image present:', [bool]$dockerImage)
+    Write-Output ('  {0,-24} {1}' -f 'Docker container running:', [bool]$dockerRunning)
+    Write-Output ('  {0,-24} {1}' -f 'uvx executable available:', [bool]$uvxAvailable)
+    Write-Output ('  {0,-24} {1}' -f 'uvx Serena runnable:', [bool]$uvxSerena)
+    Write-Output ''
+}
+
 function Invoke-Dashboard([string[]]$Remaining) {
     if ($Remaining -contains '--help' -or $Remaining -contains '-h' -or $Remaining -contains 'help') {
         Write-Output 'Usage: token-diet.ps1 dashboard [--port N]'
@@ -681,6 +717,7 @@ COMMANDS
   test-first <file>       Suggest test file counterpart for an implementation file
   strip [--stats] <file>  Strip comments from source file to reduce tokens
   diff-reads <file>       Suggest line ranges to read based on recent git diff
+  serena-status           Show Serena runtime details (mode/image/container/uvx)
   dashboard               Open live browser dashboard  [--port N]
   service <sub>           Always-on dashboard daemon  (install|uninstall|start|stop|status)
   version                 Show installed versions of all three tools
@@ -722,6 +759,7 @@ switch ($Command) {
     'diff-reads'                        { Invoke-DiffReads  $SubArgs }
     'update'                            { Invoke-Update     $SubArgs }
     'reinstall'                         { Invoke-Reinstall  $SubArgs }
+    'serena-status'                     { Invoke-SerenaStatus }
     'uninstall'                         { Invoke-Uninstall  $SubArgs }
     { $_ -in '--help','-h','help' }     { Invoke-Help }
     default {

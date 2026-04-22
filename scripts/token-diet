@@ -13,6 +13,7 @@
 set -euo pipefail
 
 readonly TD_VERSION="1.6.1"
+readonly SERENA_REPO="${SERENA_REPO:-https://github.com/celstnblacc/serena}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Colors -------------------------------------------------------------------
@@ -56,6 +57,23 @@ bar() {
 }
 
 check_cmd() { command -v "$1" &>/dev/null; }
+
+# Detect an actually usable Serena runtime (not just uvx presence).
+# Prints one of: docker | uvx
+serena_runtime_mode() {
+  if check_cmd docker && docker image inspect token-diet/serena:latest &>/dev/null 2>&1; then
+    echo "docker"
+    return 0
+  fi
+  if check_cmd uvx; then
+    if uvx serena --version &>/dev/null 2>&1 || \
+       uvx --from "git+${SERENA_REPO}" serena --help &>/dev/null 2>&1; then
+      echo "uvx"
+      return 0
+    fi
+  fi
+  return 1
+}
 
 # Extract the configured command for [mcp_servers.<tool>] from Codex TOML.
 codex_mcp_command() {
@@ -220,9 +238,8 @@ print(d['total_commands'],d['total_input'],d['total_saved'],round(d['avg_savings
   echo -e "${DIM}$(printf '%.0s─' {1..50})${NC}"
   echo -e "  ${DIM}Note: Serena reduces prompt size — not tracked per-command${NC}"
 
-  local serena_ok=false
-  # Check uvx availability (online mode) or Docker image (local mode)
-  if check_cmd uvx || docker image inspect token-diet/serena:latest &>/dev/null 2>&1; then
+  local serena_ok=false serena_mode=""
+  if serena_mode="$(serena_runtime_mode)"; then
     serena_ok=true
   fi
 
@@ -234,7 +251,7 @@ print(d['total_commands'],d['total_input'],d['total_saved'],round(d['avg_savings
     printf "  %-22s %s\n" "MCP hosts:"    "$sh"
     printf "  %-22s %s\n" "Memories:"     "$mem_count files"
     printf "  %-22s %s\n" "Session logs:" "$log_days days"
-    ok "Serena — active"
+    ok "Serena — active (${serena_mode})"
   else
     miss "Serena not installed  →  run: bash install.sh --serena-only"
   fi
@@ -295,10 +312,16 @@ cmd_version() {
     miss "tilth  not installed"
   fi
 
-  check_cmd uvx    && ok "Serena (uvx available: $(uvx --version 2>/dev/null || echo 'ok'))" \
-                  || { docker image inspect token-diet/serena:latest &>/dev/null 2>&1 \
-                       && ok "Serena (Docker image: token-diet/serena:latest)" \
-                       || miss "Serena not installed"; }
+  local serena_mode=""
+  if serena_mode="$(serena_runtime_mode)"; then
+    if [ "$serena_mode" = "docker" ]; then
+      ok "Serena (Docker image: token-diet/serena:latest)"
+    else
+      ok "Serena (uvx runtime available)"
+    fi
+  else
+    miss "Serena not installed"
+  fi
   echo ""
 }
 
@@ -330,10 +353,13 @@ cmd_verify() {
   else
     printf "  ${YELLOW}✗${NC} tilth ......... not installed\n"; all_ok=false
   fi
-  if docker image inspect token-diet/serena:latest &>/dev/null 2>&1; then
-    printf "  ${GREEN}✓${NC} Serena ........ Docker image loaded\n"
-  elif command -v uv &>/dev/null; then
-    printf "  ${GREEN}✓${NC} Serena (uv) ... %s\n" "$(uv --version 2>/dev/null)"
+  local serena_mode=""
+  if serena_mode="$(serena_runtime_mode)"; then
+    if [ "$serena_mode" = "docker" ]; then
+      printf "  ${GREEN}✓${NC} Serena ........ Docker image loaded\n"
+    else
+      printf "  ${GREEN}✓${NC} Serena (uvx) .. runtime available\n"
+    fi
   else
     printf "  ${YELLOW}✗${NC} Serena ........ not installed\n"; all_ok=false
   fi
@@ -396,9 +422,10 @@ cmd_health() {
   fi
 
   # Serena
-  if check_cmd uvx || docker image inspect token-diet/serena:latest &>/dev/null 2>&1; then
+  local serena_mode=""
+  if serena_mode="$(serena_runtime_mode)"; then
     local serena_hosts; serena_hosts=$(hosts_registered "serena")
-    ok "Serena  (hosts: ${serena_hosts})"
+    ok "Serena  (runtime: ${serena_mode}, hosts: ${serena_hosts})"
   else
     miss "Serena not found  (uvx or Docker required)"
     issues=$(( issues + 1 ))
@@ -420,6 +447,39 @@ cmd_health() {
     echo ""
     return 1
   fi
+}
+
+cmd_serena_status() {
+  echo -e "\n${BOLD}token-diet serena-status${NC}\n"
+
+  local mode="none"
+  serena_runtime_mode >/dev/null 2>&1 && mode="$(serena_runtime_mode)"
+
+  local docker_image=false docker_running=false uvx_available=false uvx_serena=false
+  if check_cmd docker && docker image inspect token-diet/serena:latest &>/dev/null 2>&1; then
+    docker_image=true
+  fi
+
+  if $docker_image && check_cmd docker; then
+    local running
+    running="$(docker ps --filter ancestor=token-diet/serena:latest --format '{{.ID}}' 2>/dev/null || true)"
+    [ -n "$running" ] && docker_running=true
+  fi
+
+  if check_cmd uvx; then
+    uvx_available=true
+    if uvx serena --version &>/dev/null 2>&1 || \
+       uvx --from "git+${SERENA_REPO}" serena --help &>/dev/null 2>&1; then
+      uvx_serena=true
+    fi
+  fi
+
+  printf "  %-22s %s\n" "Runtime mode:" "$mode"
+  printf "  %-22s %s\n" "Docker image present:" "$docker_image"
+  printf "  %-22s %s\n" "Docker container running:" "$docker_running"
+  printf "  %-22s %s\n" "uvx executable available:" "$uvx_available"
+  printf "  %-22s %s\n" "uvx Serena runnable:" "$uvx_serena"
+  echo ""
 }
 
 cmd_uninstall() {
@@ -1893,6 +1953,7 @@ ${BOLD}COMMANDS${NC}
   strip [--stats] <file>  Strip comments from source file to reduce tokens
   diff-reads <file> Suggest line ranges to read based on recent git diff
   serena-gc         Detect and kill orphaned Serena/LSP processes  [--force]
+  serena-status     Show Serena runtime details (mode/image/container/uvx)
   dashboard         Open live browser dashboard  [--port N]
   service <sub>     Manage always-on dashboard daemon  (install|uninstall|start|stop|status)
   version           Show installed versions of all three tools
@@ -1936,6 +1997,7 @@ case "${1:-gain}" in
   strip)             shift; cmd_strip "$@" ;;
   diff-reads)        shift; cmd_diff_reads "$@" ;;
   serena-gc)         shift; cmd_serena_gc "$@" ;;
+  serena-status)     cmd_serena_status ;;
   update)            shift; cmd_update "$@" ;;
   reinstall)         shift; cmd_reinstall "$@" ;;
   uninstall)         shift; cmd_uninstall "$@" ;;
