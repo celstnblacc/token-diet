@@ -291,20 +291,25 @@ function Invoke-Service([string[]]$Remaining) {
     $py       = Find-Python
     $dashBin  = Join-Path $ScriptDir 'token-diet-dashboard'
     if (-not (Test-Path $dashBin)) {
-        $dashBin = (Get-Command 'token-diet-dashboard' -ErrorAction SilentlyContinue)?.Source
+        $dashCmd = Get-Command 'token-diet-dashboard' -ErrorAction SilentlyContinue
+        if ($dashCmd) { $dashBin = $dashCmd.Source }
     }
 
     switch ($sub) {
         'install' {
             if (-not $py)      { Write-Error 'python3/python not found'; exit 1 }
-            if (-not $dashBin) { Write-Error 'token-diet-dashboard not found — run: Install.ps1'; exit 1 }
+            if (-not $dashBin -or -not (Test-Path $dashBin)) { Write-Error 'token-diet-dashboard not found — run: Install.ps1'; exit 1 }
             New-Item -ItemType Directory -Force -Path $logDir | Out-Null
             # Remove stale task if present
             schtasks /Delete /TN $taskName /F 2>$null | Out-Null
-            $action  = "cmd /c `"$py `"$dashBin`" >> `"$logFile`" 2>&1`""
+            $action  = ('cmd /c "cd /d ""{0}"" && ""{1}"" ""{2}"" --port 7384 >> ""{3}"" 2>&1"' -f $ScriptDir, $py, $dashBin, $logFile)
             $trigger = 'ONLOGON'
-            schtasks /Create /TN $taskName /TR $action /SC $trigger /RL HIGHEST /F | Out-Null
-            schtasks /Run /TN $taskName | Out-Null
+            schtasks /Create /TN $taskName /TR $action /SC $trigger /RL LIMITED /F | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error 'Failed to register Task Scheduler service. Try running in an elevated shell if policy blocks task creation.'
+                exit 1
+            }
+            schtasks /Run /TN $taskName 2>$null | Out-Null
             Write-Ok  "Service installed (Windows Task Scheduler) — runs on every login"
             Write-Ok  "Log: $logFile"
             Write-Ok  "Dashboard: http://127.0.0.1:7384"

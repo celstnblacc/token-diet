@@ -108,6 +108,10 @@ On Windows, use the PowerShell equivalent (`scripts/token-diet.ps1`), which supp
 # ... same command surface as the bash CLI
 ```
 
+Windows Task Scheduler service notes:
+- `service install` may require an elevated shell on locked-down systems (Task Scheduler policy can deny task creation).
+- The scheduled command now forces `--port 7384` and sets working directory to the script directory for reliable startup.
+
 The browser dashboard auto-refreshes every 30 s and shows cumulative RTK savings, a 14-day savings bar chart, weekly token projection, budget usage vs warn/hard thresholds, top-commands breakdown, loop and leak alerts, tilth/Serena status, and registered MCP hosts with missing-host hints.
 
 Serena status distinguishes runtime states:

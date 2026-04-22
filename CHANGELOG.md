@@ -28,6 +28,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 - Added `__pycache__/` and `*.pyc` to `.gitignore`
+- Prompt/rules docs now include a strict response-style rule: keep summaries/answers/explanations concise by default, expand only on explicit request (`AGENTS.md`, `scripts/lib/opencode-rules.md`)
+
+### Fixed
+- `scripts/token-diet.ps1` service install path handling: removed PowerShell 7-only null-conditional command lookup and replaced with Windows PowerShell-compatible `Get-Command` fallback
+- `scripts/token-diet.ps1` Task Scheduler action now sets working directory and explicit dashboard port (`7384`) for more reliable startup
+- `scripts/token-diet.ps1` service install now fails fast with a clear error when Task Scheduler registration is denied by policy/permissions
+- `README.md` documents Windows service-install elevation/policy caveat and startup behavior
 
 ### Fixed
 - `scripts/token-diet` — Serena health/version/gain checks now validate an actually runnable Serena runtime (uvx command works or Docker image exists) instead of treating plain `uvx` presence as healthy

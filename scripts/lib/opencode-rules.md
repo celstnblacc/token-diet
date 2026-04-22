@@ -22,3 +22,7 @@ Serena = semantic symbol MCP server (symbol-level edits, references).
 - Prefer structured tool output over raw `cat`-style reads.
 - Use `tilth_read --section` when you only need one function or class.
 - Avoid recursive directory listings when a glob would do.
+
+**Response style:**
+- Keep every summary, answer, and explanation concise by default.
+- Expand only when explicitly requested.
